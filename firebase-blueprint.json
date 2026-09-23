@@ -1,0 +1,137 @@
+{
+  "entities": {
+    "users": {
+      "title": "User",
+      "description": "User profile for school staff or visitor",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "avatarUrl": { "type": "string" },
+        "role": { "type": "string" },
+        "department": { "type": "string" },
+        "organization": { "type": "string" },
+        "isStaff": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "lastLogin": { "type": "string" }
+      },
+      "required": ["email", "name"]
+    },
+    "albums": {
+      "title": "Album",
+      "description": "School photo album linked with Google Drive folder",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "academicYear": { "type": "string" },
+        "category": { "type": "string" },
+        "date": { "type": "string" },
+        "photoCount": { "type": "number" },
+        "views": { "type": "number" },
+        "downloads": { "type": "number" },
+        "fileSizeTotal": { "type": "string" },
+        "coverUrl": { "type": "string" },
+        "coverDriveFileId": { "type": "string" },
+        "accessLevel": { "type": "string", "enum": ["public", "password", "private"] },
+        "accessCode": { "type": "string" },
+        "isShared": { "type": "boolean" },
+        "shareUrl": { "type": "string" },
+        "shareToken": { "type": "string" },
+        "description": { "type": "string" },
+        "location": { "type": "string" },
+        "organizer": { "type": "string" },
+        "photographer": { "type": "string" },
+        "tags": { "type": "array" },
+        "driveFolderId": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "title", "academicYear", "category", "driveFolderId"]
+    },
+    "photos": {
+      "title": "Photo",
+      "description": "Photo metadata stored in Firestore pointing to Google Drive original file",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "driveFileId": { "type": "string" },
+        "fileName": { "type": "string" },
+        "mimeType": { "type": "string" },
+        "fileSize": { "type": "string" },
+        "driveWebViewLink": { "type": "string" },
+        "albumId": { "type": "string" },
+        "uploadedBy": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "sortOrder": { "type": "number" },
+        "isCover": { "type": "boolean" },
+        "title": { "type": "string" },
+        "dimensions": { "type": "string" },
+        "thumbnailUrl": { "type": "string" },
+        "categoryTag": { "type": "string" },
+        "photographer": { "type": "string" },
+        "views": { "type": "number" },
+        "downloads": { "type": "number" }
+      },
+      "required": ["id", "driveFileId", "fileName", "mimeType", "fileSize", "albumId"]
+    },
+    "shareLinks": {
+      "title": "ShareLink",
+      "description": "Public shareable link token and permission control",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "shareToken": { "type": "string" },
+        "albumId": { "type": "string" },
+        "isPublic": { "type": "boolean" },
+        "accessCount": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "expiresAt": { "type": "string" },
+        "createdByUser": { "type": "string" }
+      },
+      "required": ["id", "shareToken", "albumId"]
+    },
+    "activityLogs": {
+      "title": "ActivityLog",
+      "description": "Audit trail log of photo upload, album create, download, and share actions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "action": { "type": "string" },
+        "target": { "type": "string" },
+        "time": { "type": "string" },
+        "user": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "role": { "type": "string" },
+        "type": { "type": "string" },
+        "albumId": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "action", "target", "user"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "users",
+      "description": "User profiles"
+    },
+    "/albums/{albumId}": {
+      "schema": "albums",
+      "description": "School albums with Drive folder references"
+    },
+    "/photos/{photoId}": {
+      "schema": "photos",
+      "description": "Photo records pointing to Drive files"
+    },
+    "/shareLinks/{shareLinkId}": {
+      "schema": "shareLinks",
+      "description": "Public share link tokens"
+    },
+    "/activityLogs/{logId}": {
+      "schema": "activityLogs",
+      "description": "Audit activity logs"
+    }
+  }
+}

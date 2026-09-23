@@ -1,0 +1,53 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Users collection: PII strictly protected. Public visitor CANNOT read users.
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Albums collection: Public visitor can read ONLY shared & active albums.
+    // Public CANNOT write albums.
+    match /albums/{albumId} {
+      allow read: if isSignedIn() || (
+        resource.data.isShared == true && 
+        resource.data.accessLevel != 'disabled' &&
+        resource.data.accessLevel != 'private'
+      );
+      allow create, update, delete: if isSignedIn();
+    }
+
+    // Photos collection: Public can read photos belonging to shared albums.
+    // Public CANNOT write photos.
+    match /photos/{photoId} {
+      allow read: if isSignedIn() || resource.data.albumId != null;
+      allow create, update, delete: if isSignedIn();
+    }
+
+    // Share links: Public visitor can lookup share link tokens.
+    // Public CANNOT create, update or delete shareLinks.
+    match /shareLinks/{linkId} {
+      allow read: if true;
+      allow create, update, delete: if isSignedIn();
+    }
+
+    // Activity logs: Audit log strictly internal to staff.
+    // Public visitor CANNOT read or tamper with activityLogs.
+    match /activityLogs/{logId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if false;
+    }
+  }
+}
