@@ -132,9 +132,10 @@ export function getOrCreateGISTokenClient(): any {
   if (typeof window === 'undefined' || !(window as any).google?.accounts?.oauth2) {
     return null;
   }
-  if (!gisTokenClient && firebaseConfig.oAuthClientId) {
+  const clientId = (import.meta.env.VITE_GOOGLE_CLIENT_ID || firebaseConfig.oAuthClientId || '').trim();
+  if (!gisTokenClient && clientId) {
     gisTokenClient = (window as any).google.accounts.oauth2.initTokenClient({
-      client_id: firebaseConfig.oAuthClientId,
+      client_id: clientId,
       scope: 'https://www.googleapis.com/auth/drive.file',
       callback: (tokenResponse: any) => {
         if (tokenResponse?.access_token) {

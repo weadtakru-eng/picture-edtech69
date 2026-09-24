@@ -147,8 +147,12 @@ export async function openGooglePhotoPicker(options: {
       }
 
       // 4. Dedicated Google Picker API key from environment variable (never hardcoded)
-      const pickerApiKey = (import.meta.env.VITE_GOOGLE_PICKER_API_KEY || firebaseConfig.apiKey || '').trim();
-      const googleCloudProjectNumber = '492271785891';
+      const rawEnvKey = import.meta.env.VITE_GOOGLE_PICKER_API_KEY;
+      const cleanEnvKey = typeof rawEnvKey === 'string' ? rawEnvKey.replace(/^["']|["']$/g, '').trim() : '';
+      const pickerApiKey = cleanEnvKey || (firebaseConfig.apiKey || '').trim();
+      const googleCloudProjectNumber = (import.meta.env.VITE_GOOGLE_PROJECT_NUMBER || firebaseConfig.messagingSenderId || '492271785891').trim();
+
+      const pickerOrigin = window.location.origin || (window.location.protocol + '//' + window.location.host);
 
       // Build Picker with least privilege drive.file scope & OAuth token
       const builder = new google.picker.PickerBuilder()
@@ -159,7 +163,7 @@ export async function openGooglePhotoPicker(options: {
         .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
         .setLocale('th')
         .setTitle(options.albumTitle ? `เลือกรูปภาพสำหรับอัลบั้ม: ${options.albumTitle}` : 'เลือกรูปภาพเพื่อซิงค์เข้าสู่อัลบั้ม')
-        .setOrigin(window.location.protocol + '//' + window.location.host);
+        .setOrigin(pickerOrigin);
 
       builder.setCallback((data: any) => {
         const action = data[google.picker.Response.ACTION];
