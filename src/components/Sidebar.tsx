@@ -15,6 +15,7 @@ import {
   LogIn
 } from 'lucide-react';
 import { AppView, GmailUser } from '../types';
+import { UserAvatar } from './UserAvatar';
 
 interface SidebarProps {
   currentView: AppView;
@@ -134,11 +135,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onClick={onOpenGmailAuth}
               className="flex items-center gap-2.5 min-w-0 cursor-pointer hover:opacity-90 transition-opacity"
             >
-              <img
-                src={currentUser.avatarUrl}
-                alt={currentUser.name}
-                className="w-9 h-9 rounded-xl object-cover ring-1 ring-slate-700 shrink-0"
-                referrerPolicy="no-referrer"
+              <UserAvatar
+                src={currentUser.avatarUrl || currentUser.photoURL}
+                name={currentUser.name}
+                email={currentUser.email}
+                className="w-9 h-9 rounded-xl ring-1 ring-slate-700"
               />
               <div className="min-w-0">
                 <p className="text-xs font-semibold text-white truncate">{currentUser.name}</p>

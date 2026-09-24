@@ -14,7 +14,9 @@ import {
   savePhotoToFirestore, 
   deletePhotoFromFirestore,
   setAlbumCoverPhoto,
-  seedInitialDataIfEmpty 
+  seedInitialDataIfEmpty,
+  subscribeAuthState,
+  logoutFirebase
 } from './services/firebaseService';
 import { Navbar } from './components/Navbar';
 import { Sidebar } from './components/Sidebar';
@@ -57,19 +59,37 @@ export default function App() {
     return null;
   });
 
-  // Gmail User Auth state
+  // Gmail User Auth state backed by Firebase Authentication
   const [currentUser, setCurrentUser] = useState<GmailUser | null>(() => {
     const saved = localStorage.getItem('rajinibon_gmail_user');
     if (saved) {
       try {
         return JSON.parse(saved);
       } catch (e) {
-        return DEFAULT_GMAIL_USER;
+        return null;
       }
     }
-    return DEFAULT_GMAIL_USER;
+    return null;
   });
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isGmailAuthOpen, setIsGmailAuthOpen] = useState(false);
+
+  // Sync with Firebase Auth state in real-time (Single listener pattern)
+  useEffect(() => {
+    const unsubAuth = subscribeAuthState(
+      (user) => {
+        setCurrentUser(user);
+        if (user) {
+          localStorage.setItem('rajinibon_gmail_user', JSON.stringify(user));
+        } else {
+          localStorage.removeItem('rajinibon_gmail_user');
+        }
+      },
+      (loading) => setIsAuthLoading(loading)
+    );
+
+    return () => unsubAuth();
+  }, []);
 
   // UI & Search states
   const [searchQuery, setSearchQuery] = useState('');
@@ -115,16 +135,18 @@ export default function App() {
   const [selectedPhotoIds, setSelectedPhotoIds] = useState<string[]>(['p-smt-01', 'p-smt-02', 'p-smt-04', 'p-smt-05']);
   const [activeLightboxPhoto, setActiveLightboxPhoto] = useState<Photo | null>(null);
 
-  // Sync user with local storage
+  // Sync user with local storage and auth
   const handleLoginSuccess = (user: GmailUser) => {
     setCurrentUser(user);
     localStorage.setItem('rajinibon_gmail_user', JSON.stringify(user));
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await logoutFirebase();
     setCurrentUser(null);
     localStorage.removeItem('rajinibon_gmail_user');
   };
+
 
   // Handlers
   const handleTogglePhotoSelection = (id: string) => {

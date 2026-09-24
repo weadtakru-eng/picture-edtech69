@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { GmailUser } from '../types';
 import { loginWithFirebaseGoogle, saveUserToFirestore, logoutFirebase } from '../services/firebaseService';
+import { UserAvatar } from './UserAvatar';
 
 interface GmailAuthModalProps {
   isOpen: boolean;
@@ -227,13 +228,13 @@ export const GmailAuthModal: React.FC<GmailAuthModalProps> = ({
 
         {/* Current Logged In Banner */}
         {currentUser && !isCustomMode && (
-          <div className="mt-4 p-3.5 bg-blue-50/70 border border-blue-200 rounded-2xl flex items-center justify-between">
+          <div className="mt-4 p-3.5 bg-blue-50/70 border border-blue-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
-              <img
-                src={currentUser.avatarUrl}
-                alt=""
-                className="w-10 h-10 rounded-full object-cover ring-2 ring-blue-500/20"
-                referrerPolicy="no-referrer"
+              <UserAvatar
+                src={currentUser.avatarUrl || currentUser.photoURL}
+                name={currentUser.name}
+                email={currentUser.email}
+                className="w-10 h-10 rounded-full ring-2 ring-blue-500/20"
               />
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
@@ -245,18 +246,45 @@ export const GmailAuthModal: React.FC<GmailAuthModalProps> = ({
               </div>
             </div>
 
-            <button
-              onClick={() => {
-                onLogout();
-                setSuccessMessage('ออกจากระบบเรียบร้อยแล้ว');
-                setTimeout(() => setSuccessMessage(null), 1500);
-              }}
-              className="text-xs font-semibold text-rose-600 hover:text-rose-700 bg-white hover:bg-rose-50 px-2.5 py-1.5 rounded-xl border border-rose-200 transition-colors shadow-2xs shrink-0"
-            >
-              ออกจากระบบ
-            </button>
+            <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setSuccessMessage(`กำลังเปิดโปรไฟล์ของ ${currentUser.name}`);
+                  setTimeout(() => setSuccessMessage(null), 1500);
+                }}
+                className="text-[11px] font-semibold text-slate-700 hover:text-blue-700 bg-white hover:bg-slate-100 px-2.5 py-1.5 rounded-xl border border-slate-200 transition-colors shadow-2xs"
+                title="ดูข้อมูลโปรไฟล์"
+              >
+                โปรไฟล์
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSuccessMessage('กำลังเปิดหน้าตั้งค่าบัญชี');
+                  setTimeout(() => setSuccessMessage(null), 1500);
+                }}
+                className="text-[11px] font-semibold text-slate-700 hover:text-blue-700 bg-white hover:bg-slate-100 px-2.5 py-1.5 rounded-xl border border-slate-200 transition-colors shadow-2xs"
+                title="ตั้งค่าบัญชี"
+              >
+                ตั้งค่า
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onLogout();
+                  setSuccessMessage('ออกจากระบบเรียบร้อยแล้ว');
+                  setTimeout(() => setSuccessMessage(null), 1500);
+                }}
+                className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 bg-white hover:bg-rose-50 px-2.5 py-1.5 rounded-xl border border-rose-200 transition-colors shadow-2xs"
+                title="ออกจากระบบ Google"
+              >
+                ออกจากระบบ
+              </button>
+            </div>
           </div>
         )}
+
 
         {/* Account Selection */}
         {!isCustomMode ? (

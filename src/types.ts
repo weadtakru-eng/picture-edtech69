@@ -135,10 +135,25 @@ export interface GmailUser {
   name: string;
   email: string;
   avatarUrl: string;
+  photoURL?: string;
   role: string;
   department: string;
   organization: string;
   isStaff: boolean;
   signedInAt: string;
   hasDriveAccess?: boolean;
+}
+
+export interface UserDocument {
+  uid: string;
+  displayName: string;
+  email: string;
+  photoURL: string | null;
+  role: 'admin' | 'staff' | string;
+  department?: string;
+  organization?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastLoginAt: string;
 }

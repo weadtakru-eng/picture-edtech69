@@ -13,8 +13,14 @@ import {
   increment,
   serverTimestamp
 } from 'firebase/firestore';
-import { signInWithPopup, signOut, GoogleAuthProvider } from 'firebase/auth';
-import { db, auth, googleProvider, setCachedAccessToken, getCachedAccessToken, getValidAccessToken } from '../lib/firebase';
+import { 
+  signInWithPopup, 
+  signOut, 
+  GoogleAuthProvider, 
+  onAuthStateChanged, 
+  User as FirebaseUser 
+} from 'firebase/auth';
+import { db, auth, googleProvider, setCachedAccessToken, getCachedAccessToken, getValidAccessToken, isTokenExpired } from '../lib/firebase';
 import { Album, Photo, GmailUser, ShareLink, ActivityItem } from '../types';
 import { INITIAL_ALBUMS, INITIAL_PHOTOS } from '../data/mockData';
 import { getPhotoUrl } from './googleDriveService';
@@ -613,14 +619,99 @@ export async function logActivity(activity: ActivityItem): Promise<void> {
 }
 
 /**
- * Save user profile in Firestore
+ * Syncs the Google user profile with Firestore users/{uid} document:
+ * - Uses users/{uid} as document ID (never email)
+ * - Fields: uid, displayName, email, photoURL, role, createdAt, updatedAt, lastLoginAt, isActive
+ * - Preserves existing role if already set (admin / staff)
+ * - Updates photoURL whenever Google sends a new one
+ * - Fallbacks displayName to email prefix if absent
+ */
+export async function syncUserProfileDocument(fbUser: FirebaseUser): Promise<GmailUser> {
+  const uid = fbUser.uid;
+  const userRef = doc(db, USERS_COLLECTION, uid);
+
+  let existingData: any = null;
+  try {
+    const snap = await getDoc(userRef);
+    if (snap.exists()) {
+      existingData = snap.data();
+    }
+  } catch (err) {
+    console.warn('Could not read existing user document from Firestore:', err);
+  }
+
+  const nowIso = new Date().toISOString();
+  const email = fbUser.email || 'user@gmail.com';
+  const emailPrefix = email.split('@')[0];
+  const displayName = fbUser.displayName?.trim() || emailPrefix;
+  const photoURL = fbUser.photoURL || null;
+
+  const isSchool = email.includes('rajinibon') || email.includes('school');
+
+  // Preserve existing role, otherwise assign based on configuration
+  const role = existingData?.role || (email.includes('rajinibontv') || email.includes('admin') ? 'admin' : (isSchool ? 'staff' : 'staff'));
+  const department = existingData?.department || (isSchool ? 'ฝ่ายโสตทัศนูปกรณ์และประชาสัมพันธ์' : 'ผู้ดูแลคลังภาพโสต');
+  const organization = existingData?.organization || (isSchool ? 'โรงเรียนราชินีบน' : 'Google Workspace');
+
+  const userDataToSave = {
+    uid,
+    displayName,
+    email,
+    photoURL,
+    role,
+    department,
+    organization,
+    isActive: true,
+    updatedAt: nowIso,
+    lastLoginAt: nowIso,
+    ...(existingData?.createdAt ? {} : { createdAt: nowIso })
+  };
+
+  try {
+    await setDoc(userRef, userDataToSave, { merge: true });
+  } catch (err) {
+    console.warn('Could not write user profile to Firestore:', err);
+  }
+
+  const roleLabel = role === 'admin' 
+    ? 'ผู้ดูแลระบบโสตทัศนูปกรณ์ & สื่อโทรทัศน์' 
+    : 'เจ้าหน้าที่โสตทัศนูปกรณ์';
+
+  const formattedUser: GmailUser = {
+    uid,
+    name: displayName,
+    email,
+    avatarUrl: photoURL || '',
+    photoURL: photoURL || undefined,
+    role: roleLabel,
+    department,
+    organization,
+    isStaff: true,
+    signedInAt: 'วันนี้ ' + new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + ' น.',
+    hasDriveAccess: !isTokenExpired()
+  };
+
+  return formattedUser;
+}
+
+/**
+ * Save or update user profile in Firestore at users/{uid}
  */
 export async function saveUserToFirestore(user: GmailUser): Promise<void> {
   try {
-    const userRef = doc(db, USERS_COLLECTION, user.email.replace(/[.@]/g, '_'));
+    const docId = user.uid || (auth.currentUser ? auth.currentUser.uid : user.email.replace(/[.@]/g, '_'));
+    const userRef = doc(db, USERS_COLLECTION, docId);
     await setDoc(userRef, {
-      ...user,
-      lastLogin: new Date().toISOString()
+      uid: docId,
+      displayName: user.name,
+      email: user.email,
+      photoURL: user.avatarUrl || user.photoURL || null,
+      role: user.role.includes('admin') || user.role.includes('ผู้ดูแล') ? 'admin' : 'staff',
+      department: user.department,
+      organization: user.organization,
+      isActive: true,
+      lastLoginAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     }, { merge: true });
   } catch (err) {
     console.warn('Failed to save user in Firestore:', err);
@@ -628,7 +719,7 @@ export async function saveUserToFirestore(user: GmailUser): Promise<void> {
 }
 
 /**
- * Firebase Google Sign-In with popup + Drive OAuth Access Token
+ * Firebase Google Sign-In with popup + in-memory Drive OAuth Access Token
  */
 export async function loginWithFirebaseGoogle(): Promise<{ user: GmailUser; accessToken: string }> {
   try {
@@ -642,23 +733,8 @@ export async function loginWithFirebaseGoogle(): Promise<{ user: GmailUser; acce
       console.warn('No access token returned from GoogleAuthProvider credentials');
     }
 
-    const fbUser = result.user;
-    const isSchool = fbUser.email?.includes('rajinibon') || fbUser.email?.includes('school');
-
-    const user: GmailUser = {
-      uid: fbUser.uid,
-      name: fbUser.displayName || 'ผู้ใช้งาน Google',
-      email: fbUser.email || 'user@gmail.com',
-      avatarUrl: fbUser.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80',
-      role: isSchool ? 'เจ้าหน้าที่ฝ่ายโสตทัศนูปกรณ์ & สื่อ' : 'ผู้ใช้งาน Google Workspace',
-      department: isSchool ? 'ฝ่ายโสตทัศนูปกรณ์และประชาสัมพันธ์' : 'ผู้ดูแลคลังภาพโสต',
-      organization: isSchool ? 'โรงเรียนราชินีบน' : 'Google Account',
-      isStaff: true,
-      signedInAt: 'วันนี้ ' + new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + ' น.',
-      hasDriveAccess: !!accessToken
-    };
-
-    await saveUserToFirestore(user);
+    const user = await syncUserProfileDocument(result.user);
+    user.hasDriveAccess = !!accessToken;
     return { user, accessToken: accessToken || '' };
   } catch (error: any) {
     console.error('Google Popup sign-in error or cancelled:', error);
@@ -667,7 +743,48 @@ export async function loginWithFirebaseGoogle(): Promise<{ user: GmailUser; acce
 }
 
 /**
- * Sign out from Firebase Auth
+ * Real-time Firebase Auth state subscription (Single listener pattern)
+ * Automatically syncs profile on browser refresh without flashing mock state
+ */
+export function subscribeAuthState(
+  onUserChanged: (user: GmailUser | null) => void,
+  onLoadingChanged?: (loading: boolean) => void
+): () => void {
+  onLoadingChanged?.(true);
+  const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+    if (fbUser) {
+      try {
+        const synced = await syncUserProfileDocument(fbUser);
+        onUserChanged(synced);
+      } catch (err) {
+        console.warn('Error reading user profile on state change:', err);
+        const email = fbUser.email || 'user@gmail.com';
+        const name = fbUser.displayName || email.split('@')[0];
+        onUserChanged({
+          uid: fbUser.uid,
+          name,
+          email,
+          avatarUrl: fbUser.photoURL || '',
+          photoURL: fbUser.photoURL || undefined,
+          role: 'เจ้าหน้าที่โสตทัศนูปกรณ์',
+          department: 'ฝ่ายโสตทัศนูปกรณ์และประชาสัมพันธ์',
+          organization: 'โรงเรียนราชินีบน',
+          isStaff: true,
+          signedInAt: 'วันนี้ ' + new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + ' น.',
+          hasDriveAccess: !isTokenExpired()
+        });
+      }
+    } else {
+      onUserChanged(null);
+    }
+    onLoadingChanged?.(false);
+  });
+
+  return unsubscribe;
+}
+
+/**
+ * Sign out from Firebase Auth, clearing in-memory OAuth tokens
  */
 export async function logoutFirebase(): Promise<void> {
   try {
@@ -677,3 +794,4 @@ export async function logoutFirebase(): Promise<void> {
     console.warn('Logout error:', e);
   }
 }
+

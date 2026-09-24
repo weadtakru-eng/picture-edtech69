@@ -14,6 +14,7 @@ import {
   Database
 } from 'lucide-react';
 import { AppView, GmailUser } from '../types';
+import { UserAvatar } from './UserAvatar';
 
 interface NavbarProps {
   currentView: AppView;
@@ -185,17 +186,13 @@ export const Navbar: React.FC<NavbarProps> = ({
               className="flex items-center gap-2.5 pl-1 pr-2 py-1 rounded-xl hover:bg-slate-100 cursor-pointer transition-colors border border-transparent hover:border-slate-200"
               title="คลิกเพื่อจัดการบัญชี Google / Gmail"
             >
-              <div className="relative">
-                <img
-                  src={currentUser.avatarUrl}
-                  alt={currentUser.name}
-                  className="w-8 h-8 rounded-full object-cover ring-2 ring-blue-500/30"
-                  referrerPolicy="no-referrer"
-                />
-                <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-white rounded-full flex items-center justify-center shadow-2xs">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                </span>
-              </div>
+              <UserAvatar
+                src={currentUser.avatarUrl || currentUser.photoURL}
+                name={currentUser.name}
+                email={currentUser.email}
+                className="w-8 h-8 rounded-full ring-2 ring-blue-500/30"
+                showBadge={true}
+              />
               <div className="hidden lg:block text-left">
                 <div className="flex items-center gap-1">
                   <span className="text-xs font-bold text-slate-800 leading-tight truncate max-w-[120px]">{currentUser.name}</span>
