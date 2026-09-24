@@ -25,6 +25,7 @@ import { Album, Photo, GmailUser, ShareLink, ActivityItem } from '../types';
 import { INITIAL_ALBUMS, INITIAL_PHOTOS } from '../data/mockData';
 import { getPhotoUrl, listFilesInAlbumFolder } from './googleDriveService';
 import { generatePinSalt, hashPin } from './pinSecurity';
+import { GooglePickerFile } from './googlePickerService';
 
 const ALBUMS_COLLECTION = 'albums';
 const PHOTOS_COLLECTION = 'photos';
@@ -412,6 +413,174 @@ export async function syncPhotosFromDriveFolder(
     totalCount: newTotalCount,
     existingCount: existingPhotos.length,
     missingCount
+  };
+}
+
+export interface PickerSyncResult {
+  selectedCount: number;
+  addedCount: number;
+  duplicateCount: number;
+  totalCount: number;
+}
+
+/**
+ * Synchronizes photos selected via Google Picker into Firestore photos collection
+ * Grants drive.file access and records photo metadata with strict duplicate prevention.
+ */
+export async function syncPhotosFromPicker(
+  album: Album,
+  selectedFiles: GooglePickerFile[],
+  currentUser?: GmailUser | null
+): Promise<PickerSyncResult> {
+  if (!album || !album.id) {
+    throw new Error('ไม่พบข้อมูลอัลบั้มเป้าหมาย');
+  }
+
+  if (!selectedFiles || selectedFiles.length === 0) {
+    return {
+      selectedCount: 0,
+      addedCount: 0,
+      duplicateCount: 0,
+      totalCount: album.photoCount || 0
+    };
+  }
+
+  // 1. Fetch current photos for this album from Firestore
+  let existingPhotos: Photo[] = [];
+  try {
+    const q = query(collection(db, PHOTOS_COLLECTION), where('albumId', '==', album.id));
+    const snap = await getDocs(q);
+    existingPhotos = snap.docs.map(d => ({ id: d.id, ...d.data() } as Photo));
+  } catch (err) {
+    console.warn('Could not read existing photos from Firestore:', err);
+  }
+
+  const existingDriveFileIds = new Set(
+    existingPhotos.map(p => p.driveFileId).filter((id): id is string => !!id)
+  );
+
+  let addedCount = 0;
+  let duplicateCount = 0;
+  const token = getCachedAccessToken();
+
+  for (let i = 0; i < selectedFiles.length; i++) {
+    const file = selectedFiles[i];
+
+    // 2. Strict Duplicate Prevention using driveFileId as Primary External Identifier
+    if (existingDriveFileIds.has(file.id)) {
+      duplicateCount++;
+      continue;
+    }
+
+    let width = 3840;
+    let height = 2160;
+    let createdTime = file.lastEditedUtc ? new Date(file.lastEditedUtc).toISOString() : new Date().toISOString();
+    let modifiedTime = createdTime;
+    let fileSizeStr = file.sizeBytes 
+      ? `${(file.sizeBytes / (1024 * 1024)).toFixed(1)} MB` 
+      : '2.4 MB';
+
+    // 3. Fetch detailed metadata from Drive API for this authorized file if token available
+    if (token) {
+      try {
+        const resp = await fetch(
+          `https://www.googleapis.com/drive/v3/files/${file.id}?fields=id,name,mimeType,size,imageMediaMetadata,createdTime,modifiedTime,webViewLink,webContentLink`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (resp.ok) {
+          const meta = await resp.json();
+          if (meta.size) {
+            const bytes = parseInt(meta.size, 10);
+            fileSizeStr = `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+          }
+          if (meta.createdTime) createdTime = meta.createdTime;
+          if (meta.modifiedTime) modifiedTime = meta.modifiedTime;
+          if (meta.imageMediaMetadata?.width && meta.imageMediaMetadata?.height) {
+            width = meta.imageMediaMetadata.width;
+            height = meta.imageMediaMetadata.height;
+          }
+        }
+      } catch (metaErr) {
+        console.warn('Could not fetch extra metadata for file:', file.id, metaErr);
+      }
+    }
+
+    const photoId = `photo-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`;
+    const newPhoto: Photo = {
+      id: photoId,
+      albumId: album.id,
+      driveFileId: file.id,
+      fileName: file.name,
+      filename: file.name,
+      mimeType: file.mimeType || 'image/jpeg',
+      fileSize: fileSizeStr,
+      driveWebViewLink: file.url || `https://drive.google.com/file/d/${file.id}/view`,
+      thumbnailUrl: getPhotoUrl(file.id, true, 800),
+      url: getPhotoUrl(file.id, false),
+      uploadedBy: currentUser?.name || 'ครูกานดา (โสตทัศนศึกษา)',
+      uploadedByName: currentUser?.name || 'ครูกานดา (โสตทัศนศึกษา)',
+      sortOrder: existingPhotos.length + addedCount + 1,
+      isCover: existingPhotos.length === 0 && addedCount === 0,
+      title: file.name.replace(/\.[^/.]+$/, ''),
+      dimensions: `${width} x ${height}`,
+      width,
+      height,
+      createdTime,
+      modifiedTime,
+      createdAt: new Date().toISOString(),
+      uploadedAt: new Date().toISOString(),
+      categoryTag: album.category,
+      views: 0,
+      downloads: 0,
+      photographer: album.photographer || 'ฝ่ายโสตทัศนูปกรณ์'
+    };
+
+    try {
+      const photoRef = doc(db, PHOTOS_COLLECTION, photoId);
+      await setDoc(photoRef, newPhoto);
+      existingDriveFileIds.add(file.id);
+      addedCount++;
+    } catch (err) {
+      console.error(`Failed to save synced photo ${file.name} to Firestore:`, err);
+    }
+  }
+
+  // 4. Update album photo count and last sync timestamp
+  const newTotalCount = existingPhotos.length + addedCount;
+  try {
+    const albumRef = doc(db, ALBUMS_COLLECTION, album.id);
+    await updateDoc(albumRef, {
+      photoCount: newTotalCount,
+      updatedAt: new Date().toISOString()
+    });
+  } catch (err) {
+    console.warn('Failed to update album count in Firestore:', err);
+  }
+
+  // 5. Record activity log with required metadata
+  if (selectedFiles.length > 0) {
+    await logActivity({
+      id: 'act-' + Date.now(),
+      type: 'PHOTOS_SYNCED_FROM_DRIVE',
+      title: `ซิงค์รูปภาพจาก Google Drive เพิ่ม ${addedCount} รูป (เลือก ${selectedFiles.length} รูป, ซ้ำ ${duplicateCount} รูป)`,
+      albumTitle: album.title,
+      albumId: album.id,
+      user: currentUser?.name || 'ฝ่ายโสตทัศนูปกรณ์',
+      timeAgo: 'เมื่อสักครู่',
+      timestamp: new Date().toISOString(),
+      metadata: {
+        selectedCount: selectedFiles.length,
+        addedCount,
+        duplicateCount
+      }
+    });
+  }
+
+  return {
+    selectedCount: selectedFiles.length,
+    addedCount,
+    duplicateCount,
+    totalCount: newTotalCount
   };
 }
 

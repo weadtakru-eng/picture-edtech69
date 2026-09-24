@@ -6,3 +6,8 @@
   }
 }
 
+.picker-dialog,
+.picker-dialog-bg {
+  z-index: 99999 !important;
+}
+

@@ -23,8 +23,9 @@ import {
   Layers
 } from 'lucide-react';
 import { Album, UploadQueueItem, AppView, Photo, GmailUser } from '../types';
-import { savePhotoToFirestore, saveAlbumToFirestore, logActivity, syncPhotosFromDriveFolder } from '../services/firebaseService';
+import { savePhotoToFirestore, saveAlbumToFirestore, logActivity, syncPhotosFromDriveFolder, syncPhotosFromPicker } from '../services/firebaseService';
 import { uploadPhoto, createAlbumFolder, DriveError } from '../services/googleDriveService';
+import { openGooglePhotoPicker } from '../services/googlePickerService';
 import { getCachedAccessToken, getValidAccessToken } from '../lib/firebase';
 
 interface BulkUploaderViewProps {
@@ -162,17 +163,34 @@ export const BulkUploaderView: React.FC<BulkUploaderViewProps> = ({
 
     try {
       const albumToSync = { ...currentSelectedAlbum, driveFolderId: folderId };
-      const result = await syncPhotosFromDriveFolder(albumToSync, currentUser);
+      
+      // Open Google Picker pre-scoped to album's Drive folder under least privilege drive.file
+      const selectedFiles = await openGooglePhotoPicker({
+        folderId,
+        albumTitle: currentSelectedAlbum.title,
+        onAuthRequired: onOpenGmailAuth
+      });
+
+      // User closed or cancelled Picker without selecting: cleanly exit without error
+      if (!selectedFiles || selectedFiles.length === 0) {
+        setIsSyncing(false);
+        return;
+      }
+
+      // Synchronize selected files into Firestore with duplicate prevention
+      const result = await syncPhotosFromPicker(albumToSync, selectedFiles, currentUser);
       setIsSyncing(false);
+
       if (result.addedCount > 0) {
-        setSyncSuccessMessage(`ซิงค์สำเร็จ! นำเข้ารูปภาพใหม่ ${result.addedCount} รูป (รวมทั้งหมด ${result.totalCount} รูป)`);
+        const dupInfo = result.duplicateCount > 0 ? ` (ข้ามรูปภาพที่ซ้ำ ${result.duplicateCount} รูป)` : '';
+        setSyncSuccessMessage(`ซิงค์สำเร็จ! นำเข้ารูปภาพใหม่ ${result.addedCount} รูป${dupInfo} รวมทั้งหมด ${result.totalCount} รูป`);
         onPhotosUploaded(result.addedCount);
       } else {
-        setSyncSuccessMessage(`ข้อมูลเป็นปัจจุบันแล้ว: ตรวจสอบพบ ${result.totalCount} รูปภาพใน Google Drive (ไม่มีรูปใหม่ซ้ำ)`);
+        setSyncSuccessMessage(`ข้อมูลเป็นปัจจุบันแล้ว: รูปภาพที่เลือกทั้ง ${result.selectedCount} รูปมีอยู่ในแกลเลอรีแล้ว (ไม่มีรูปซ้ำ)`);
       }
     } catch (err: any) {
       setIsSyncing(false);
-      console.error('Sync Drive error:', err);
+      console.error('Sync Drive Picker error:', err);
       if (err.message?.includes('Google') || err.code === 'GOOGLE_LOGIN_REQUIRED') {
         setErrorMessage('กรุณาเข้าสู่ระบบ Google ใหม่อีกครั้งเพื่อรับสิทธิ์เข้าถึง Google Drive');
         if (onOpenGmailAuth) onOpenGmailAuth();

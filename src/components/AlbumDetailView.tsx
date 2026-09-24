@@ -26,7 +26,8 @@ import {
 } from 'lucide-react';
 import { Album, Photo, AppView } from '../types';
 import { getDownloadUrl } from '../services/googleDriveService';
-import { syncPhotosFromDriveFolder } from '../services/firebaseService';
+import { syncPhotosFromDriveFolder, syncPhotosFromPicker } from '../services/firebaseService';
+import { openGooglePhotoPicker } from '../services/googlePickerService';
 
 interface AlbumDetailViewProps {
   album: Album;
@@ -78,16 +79,30 @@ export const AlbumDetailView: React.FC<AlbumDetailViewProps> = ({
     }
 
     try {
-      const res = await syncPhotosFromDriveFolder(album);
+      // Open Google Picker pre-scoped to album's Drive folder under least privilege drive.file
+      const selectedFiles = await openGooglePhotoPicker({
+        folderId: album.driveFolderId,
+        albumTitle: album.title
+      });
+
+      // User closed or cancelled Picker without selecting: cleanly exit without error
+      if (!selectedFiles || selectedFiles.length === 0) {
+        setIsSyncing(false);
+        return;
+      }
+
+      const res = await syncPhotosFromPicker(album, selectedFiles);
       setIsSyncing(false);
       if (res.addedCount > 0) {
-        setSyncMessage(`ซิงค์รูปภาพสำเร็จ! เพิ่ม ${res.addedCount} รูปภาพใหม่ (รวมทั้งหมด ${res.totalCount} รูป)`);
+        const dupInfo = res.duplicateCount > 0 ? ` (ข้ามรูปซ้ำ ${res.duplicateCount} รูป)` : '';
+        setSyncMessage(`ซิงค์รูปภาพสำเร็จ! เพิ่ม ${res.addedCount} รูปภาพใหม่${dupInfo} รวมทั้งหมด ${res.totalCount} รูป`);
       } else {
-        setSyncMessage(`ข้อมูลเป็นปัจจุบันแล้ว: ตรวจสอบพบ ${res.totalCount} รูปภาพใน Google Drive ครบถ้วน`);
+        setSyncMessage(`ข้อมูลเป็นปัจจุบันแล้ว: รูปภาพที่เลือกทั้ง ${res.selectedCount} รูปมีอยู่ในแกลเลอรีแล้ว`);
       }
       setTimeout(() => setSyncMessage(null), 4000);
     } catch (err: any) {
       setIsSyncing(false);
+      console.error('AlbumDetail sync error:', err);
       setSyncError(err.message || 'เกิดข้อผิดพลาดในการซิงค์รูปภาพจาก Google Drive');
       setTimeout(() => setSyncError(null), 5000);
     }

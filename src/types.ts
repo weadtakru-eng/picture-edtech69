@@ -23,7 +23,12 @@ export interface Photo {
   driveWebViewLink?: string;
   webContentLink?: string;
   uploadedBy?: string;
+  uploadedByName?: string;
   createdAt?: string;
+  createdTime?: string;
+  modifiedTime?: string;
+  width?: number;
+  height?: number;
   sortOrder?: number;
   isCover?: boolean;
   url: string;
@@ -94,7 +99,7 @@ export interface UploadQueueItem {
 
 export interface ActivityItem {
   id: string;
-  type: 'upload' | 'share' | 'download' | 'security' | 'backup';
+  type: 'upload' | 'share' | 'download' | 'security' | 'backup' | 'PHOTOS_SYNCED_FROM_DRIVE' | string;
   title: string;
   albumTitle: string;
   timeAgo: string;
@@ -103,6 +108,12 @@ export interface ActivityItem {
   detail?: string;
   timestamp?: string;
   albumId?: string;
+  metadata?: {
+    selectedCount?: number;
+    addedCount?: number;
+    duplicateCount?: number;
+    [key: string]: any;
+  };
 }
 
 export interface TopSharedLink {
