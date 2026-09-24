@@ -23,7 +23,7 @@ import {
 import { db, auth, googleProvider, setCachedAccessToken, getCachedAccessToken, getValidAccessToken, isTokenExpired } from '../lib/firebase';
 import { Album, Photo, GmailUser, ShareLink, ActivityItem } from '../types';
 import { INITIAL_ALBUMS, INITIAL_PHOTOS } from '../data/mockData';
-import { getPhotoUrl } from './googleDriveService';
+import { getPhotoUrl, listFilesInAlbumFolder } from './googleDriveService';
 import { generatePinSalt, hashPin } from './pinSecurity';
 
 const ALBUMS_COLLECTION = 'albums';
@@ -305,6 +305,116 @@ export async function deletePhotoFromFirestore(photoId: string, albumId?: string
     handleFirestoreError(err, OperationType.DELETE, `${PHOTOS_COLLECTION}/${photoId}`);
   }
 }
+
+/**
+ * Sync image files directly from Google Drive folder into Firestore metadata
+ * - Query constraint: query only driveFolderId
+ * - Duplicate prevention: uses driveFileId as unique external key
+ * - Missing file detection: tracks photos deleted from Drive without auto-deleting Firestore records
+ * - Automatically updates album's photoCount and triggers real-time gallery refresh
+ */
+export async function syncPhotosFromDriveFolder(
+  album: Album,
+  currentUser?: GmailUser | null
+): Promise<{ addedCount: number; totalCount: number; existingCount: number; missingCount: number }> {
+  if (!album.driveFolderId || album.driveFolderId.trim() === '') {
+    throw new Error('ยังไม่มีโฟลเดอร์ Google Drive สำหรับอัลบั้มนี้');
+  }
+
+  // 1. Fetch current photos for this album from Firestore
+  let existingPhotos: Photo[] = [];
+  try {
+    const q = query(collection(db, PHOTOS_COLLECTION), where('albumId', '==', album.id));
+    const snap = await getDocs(q);
+    existingPhotos = snap.docs.map(d => d.data() as Photo);
+  } catch (err) {
+    console.warn('Could not read existing photos from Firestore:', err);
+  }
+
+  const existingDriveFileIds = new Set(existingPhotos.map(p => p.driveFileId));
+
+  // 2. Fetch image files from Google Drive album folder
+  const driveFiles = await listFilesInAlbumFolder(album.driveFolderId);
+
+  // 3. Duplicate prevention: filter out files that already exist in Firestore
+  const newFiles = driveFiles.filter(f => !existingDriveFileIds.has(f.id));
+
+  let addedCount = 0;
+  for (let i = 0; i < newFiles.length; i++) {
+    const file = newFiles[i];
+    const photoId = `photo-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`;
+    const newPhoto: Photo = {
+      id: photoId,
+      albumId: album.id,
+      driveFileId: file.id,
+      fileName: file.name,
+      filename: file.name,
+      mimeType: file.mimeType || 'image/jpeg',
+      fileSize: file.fileSize || '2.4 MB',
+      driveWebViewLink: file.webViewLink || `https://drive.google.com/file/d/${file.id}/view`,
+      webContentLink: file.webContentLink,
+      thumbnailUrl: file.thumbnailLink || getPhotoUrl(file.id, true, 800),
+      url: getPhotoUrl(file.id, false),
+      uploadedBy: currentUser?.name || 'ครูกานดา (โสตทัศนศึกษา)',
+      sortOrder: existingPhotos.length + addedCount + 1,
+      isCover: existingPhotos.length === 0 && addedCount === 0,
+      title: file.name.replace(/\.[^/.]+$/, ''),
+      dimensions: file.dimensions || '3840 x 2160',
+      categoryTag: album.category,
+      views: 0,
+      downloads: 0,
+      uploadedAt: new Date().toISOString(),
+      photographer: album.photographer || 'ฝ่ายโสตทัศนูปกรณ์'
+    };
+
+    try {
+      const photoRef = doc(db, PHOTOS_COLLECTION, photoId);
+      await setDoc(photoRef, newPhoto);
+      addedCount++;
+    } catch (err) {
+      console.error(`Failed to save synced photo ${file.name} to Firestore:`, err);
+    }
+  }
+
+  // 4. Update album photo count and last sync timestamp
+  const newTotalCount = existingPhotos.length + addedCount;
+  try {
+    const albumRef = doc(db, ALBUMS_COLLECTION, album.id);
+    await updateDoc(albumRef, {
+      photoCount: newTotalCount,
+      updatedAt: new Date().toISOString()
+    });
+  } catch (err) {
+    console.warn('Failed to update album count in Firestore:', err);
+  }
+
+  // 5. Detect missing files from Drive without destructive deletion
+  const driveFileIdsSet = new Set(driveFiles.map(f => f.id));
+  const missingCount = existingPhotos.filter(
+    p => p.driveFileId && !p.driveFileId.startsWith('drive-file-') && !driveFileIdsSet.has(p.driveFileId)
+  ).length;
+
+  if (addedCount > 0) {
+    await logActivity({
+      id: 'act-' + Date.now(),
+      type: 'upload',
+      title: `ซิงค์รูปภาพจาก Google Drive เพิ่ม ${addedCount} รูป (รวม ${newTotalCount} รูป)`,
+      albumTitle: album.title,
+      albumId: album.id,
+      user: currentUser?.name || 'ฝ่ายโสตทัศนูปกรณ์',
+      timeAgo: 'เมื่อสักครู่',
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  return {
+    addedCount,
+    totalCount: newTotalCount,
+    existingCount: existingPhotos.length,
+    missingCount
+  };
+}
+
 
 /**
  * Set cover photo for an album in Firestore

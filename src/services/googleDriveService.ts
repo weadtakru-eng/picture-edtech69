@@ -21,6 +21,20 @@ export class DriveError extends Error {
   }
 }
 
+export interface DriveFolderFileItem {
+  id: string;
+  name: string;
+  mimeType: string;
+  size?: string;
+  fileSize: string;
+  createdTime?: string;
+  modifiedTime?: string;
+  webViewLink?: string;
+  webContentLink?: string;
+  thumbnailLink?: string;
+  dimensions?: string;
+}
+
 /**
  * Helper to ensure access token is available
  */
@@ -148,6 +162,76 @@ export async function createAlbumFolder(
     throw new DriveError('NETWORK_ERROR', 'ไม่สามารถเชื่อมต่อ Google Drive Network: ' + err.message, err);
   }
 }
+
+/**
+ * List image files inside a specific Google Drive folder
+ * Query constraint: '${folderId}' in parents and trashed = false and mimeType contains 'image/'
+ * Performance:
+ * - Queries ONLY driveFolderId
+ * - Queries ONLY image mime types
+ * - Never downloads raw binary files; reads metadata only
+ */
+export async function listFilesInAlbumFolder(folderId: string): Promise<DriveFolderFileItem[]> {
+  const token = requireAccessToken();
+
+  if (!folderId || folderId.startsWith('drive-folder-')) {
+    throw new DriveError('FILE_NOT_FOUND', 'ยังไม่มีโฟลเดอร์ Google Drive สำหรับอัลบั้มนี้');
+  }
+
+  try {
+    const query = `'${folderId}' in parents and trashed = false and mimeType contains 'image/'`;
+    const fields = 'files(id,name,mimeType,size,createdTime,modifiedTime,webViewLink,webContentLink,thumbnailLink,imageMediaMetadata)';
+    const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=${encodeURIComponent(fields)}&pageSize=1000&orderBy=createdTime desc`;
+
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    if (!res.ok) {
+      await handleDriveApiError(res);
+    }
+
+    const data = await res.json();
+    const files = data.files || [];
+
+    return files.map((file: any) => {
+      let formattedSize = '2.4 MB';
+      if (file.size) {
+        const bytes = parseInt(file.size, 10);
+        if (bytes > 1024 * 1024) {
+          formattedSize = (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        } else if (bytes > 1024) {
+          formattedSize = (bytes / 1024).toFixed(0) + ' KB';
+        }
+      }
+
+      let dimensions = '3840 x 2160';
+      if (file.imageMediaMetadata?.width && file.imageMediaMetadata?.height) {
+        dimensions = `${file.imageMediaMetadata.width} x ${file.imageMediaMetadata.height}`;
+      }
+
+      return {
+        id: file.id,
+        name: file.name,
+        mimeType: file.mimeType || 'image/jpeg',
+        size: file.size,
+        fileSize: formattedSize,
+        createdTime: file.createdTime,
+        modifiedTime: file.modifiedTime,
+        webViewLink: file.webViewLink || `https://drive.google.com/file/d/${file.id}/view`,
+        webContentLink: file.webContentLink,
+        thumbnailLink: file.thumbnailLink,
+        dimensions
+      };
+    });
+  } catch (err: any) {
+    if (err instanceof DriveError) throw err;
+    throw new DriveError('NETWORK_ERROR', 'ไม่สามารถอ่านไฟล์ในโฟลเดอร์ Google Drive: ' + err.message, err);
+  }
+}
+
 
 /**
  * Upload a single photo to Google Drive inside the album folder

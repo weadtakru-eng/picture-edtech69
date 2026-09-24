@@ -19,10 +19,14 @@ import {
   SlidersHorizontal,
   ChevronLeft,
   ChevronRight,
-  Info
+  Info,
+  FolderOpen,
+  RefreshCw,
+  AlertCircle
 } from 'lucide-react';
 import { Album, Photo, AppView } from '../types';
 import { getDownloadUrl } from '../services/googleDriveService';
+import { syncPhotosFromDriveFolder } from '../services/firebaseService';
 
 interface AlbumDetailViewProps {
   album: Album;
@@ -48,6 +52,46 @@ export const AlbumDetailView: React.FC<AlbumDetailViewProps> = ({
   const [isFavoriteFilter, setIsFavoriteFilter] = useState<boolean>(false);
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'views'>('newest');
   const [downloadSuccess, setDownloadSuccess] = useState<string | null>(null);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleOpenDriveFolder = () => {
+    setSyncError(null);
+    if (!album.driveFolderId || album.driveFolderId.trim() === '' || album.driveFolderId.startsWith('drive-folder-')) {
+      setSyncError('ยังไม่มีโฟลเดอร์ Google Drive สำหรับอัลบั้มนี้');
+      return;
+    }
+    const driveFolderUrl = `https://drive.google.com/drive/folders/${album.driveFolderId}`;
+    window.open(driveFolderUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleSyncFromDrive = async () => {
+    setIsSyncing(true);
+    setSyncMessage(null);
+    setSyncError(null);
+
+    if (!album.driveFolderId || album.driveFolderId.trim() === '' || album.driveFolderId.startsWith('drive-folder-')) {
+      setIsSyncing(false);
+      setSyncError('ยังไม่มีโฟลเดอร์ Google Drive สำหรับอัลบั้มนี้');
+      return;
+    }
+
+    try {
+      const res = await syncPhotosFromDriveFolder(album);
+      setIsSyncing(false);
+      if (res.addedCount > 0) {
+        setSyncMessage(`ซิงค์รูปภาพสำเร็จ! เพิ่ม ${res.addedCount} รูปภาพใหม่ (รวมทั้งหมด ${res.totalCount} รูป)`);
+      } else {
+        setSyncMessage(`ข้อมูลเป็นปัจจุบันแล้ว: ตรวจสอบพบ ${res.totalCount} รูปภาพใน Google Drive ครบถ้วน`);
+      }
+      setTimeout(() => setSyncMessage(null), 4000);
+    } catch (err: any) {
+      setIsSyncing(false);
+      setSyncError(err.message || 'เกิดข้อผิดพลาดในการซิงค์รูปภาพจาก Google Drive');
+      setTimeout(() => setSyncError(null), 5000);
+    }
+  };
 
   const subcategories = [
     { name: 'ทั้งหมด', count: 428 },
@@ -188,7 +232,26 @@ export const AlbumDetailView: React.FC<AlbumDetailViewProps> = ({
               <span>ขนาดไฟล์รวม {album.fileSizeTotal}</span>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <button
+                onClick={handleOpenDriveFolder}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200/80 text-slate-700 text-xs sm:text-sm font-semibold rounded-xl transition-all active:scale-98"
+                title="เปิดโฟลเดอร์ Google Drive ของอัลบั้มนี้ในแท็บใหม่"
+              >
+                <FolderOpen className="w-4 h-4 text-blue-600" />
+                <span>เปิด Google Drive</span>
+              </button>
+
+              <button
+                onClick={handleSyncFromDrive}
+                disabled={isSyncing}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 disabled:opacity-50 text-xs sm:text-sm font-semibold rounded-xl transition-all active:scale-98"
+                title="ซิงค์รูปภาพที่อัปโหลดไว้ใน Google Drive เข้าสู่แกลเลอรี"
+              >
+                <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                <span>{isSyncing ? 'กำลังซิงค์...' : 'ซิงค์รูปภาพ'}</span>
+              </button>
+
               <button
                 onClick={handleDownloadZip}
                 className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-semibold rounded-xl shadow-md shadow-blue-500/20 active:scale-98 transition-all"
@@ -198,6 +261,20 @@ export const AlbumDetailView: React.FC<AlbumDetailViewProps> = ({
               </button>
             </div>
           </div>
+
+          {syncMessage && (
+            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs flex items-center gap-2 animate-in fade-in">
+              <Sparkles className="w-4 h-4" />
+              <span>{syncMessage}</span>
+            </div>
+          )}
+
+          {syncError && (
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2 animate-in fade-in">
+              <AlertCircle className="w-4 h-4" />
+              <span>{syncError}</span>
+            </div>
+          )}
 
           {downloadSuccess && (
             <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs flex items-center gap-2 animate-in fade-in">

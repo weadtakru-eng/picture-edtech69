@@ -23,7 +23,7 @@ import {
   Layers
 } from 'lucide-react';
 import { Album, UploadQueueItem, AppView, Photo, GmailUser } from '../types';
-import { savePhotoToFirestore, saveAlbumToFirestore, logActivity } from '../services/firebaseService';
+import { savePhotoToFirestore, saveAlbumToFirestore, logActivity, syncPhotosFromDriveFolder } from '../services/firebaseService';
 import { uploadPhoto, createAlbumFolder, DriveError } from '../services/googleDriveService';
 import { getCachedAccessToken, getValidAccessToken } from '../lib/firebase';
 
@@ -53,6 +53,8 @@ export const BulkUploaderView: React.FC<BulkUploaderViewProps> = ({
   const [selectedAlbumId, setSelectedAlbumId] = useState(album.id);
   const [isTestingSamplePhotos, setIsTestingSamplePhotos] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncSuccessMessage, setSyncSuccessMessage] = useState<string | null>(null);
   
   // Toggles
   const [autoWatermark, setAutoWatermark] = useState(true);
@@ -88,14 +90,95 @@ export const BulkUploaderView: React.FC<BulkUploaderViewProps> = ({
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      processUploadFiles(Array.from(e.dataTransfer.files));
-    }
+    handleOpenDriveFolder();
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      processUploadFiles(Array.from(e.target.files));
+      handleOpenDriveFolder();
+    }
+  };
+
+  /**
+   * Action 1: Open Google Drive Folder of current selected album directly in new tab
+   */
+  const handleOpenDriveFolder = async () => {
+    setErrorMessage(null);
+    setSyncSuccessMessage(null);
+
+    // Check Google Auth
+    if (!currentUser && onOpenGmailAuth) {
+      onOpenGmailAuth();
+      return;
+    }
+
+    let folderId = currentSelectedAlbum.driveFolderId;
+    if (!folderId || folderId.startsWith('drive-folder-')) {
+      try {
+        folderId = await ensureAlbumDriveFolder(currentSelectedAlbum);
+      } catch {
+        folderId = '';
+      }
+    }
+
+    if (!folderId || folderId.startsWith('drive-folder-')) {
+      setErrorMessage('ยังไม่มีโฟลเดอร์ Google Drive สำหรับอัลบั้มนี้');
+      return;
+    }
+
+    // Open target album's Drive folder in new tab
+    const driveFolderUrl = `https://drive.google.com/drive/folders/${folderId}`;
+    window.open(driveFolderUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  /**
+   * Action 2: Sync photos uploaded directly to Google Drive into Firestore metadata
+   */
+  const handleSyncDrivePhotos = async () => {
+    setIsSyncing(true);
+    setErrorMessage(null);
+    setSyncSuccessMessage(null);
+
+    if (!currentUser && onOpenGmailAuth) {
+      setIsSyncing(false);
+      onOpenGmailAuth();
+      return;
+    }
+
+    let folderId = currentSelectedAlbum.driveFolderId;
+    if (!folderId || folderId.startsWith('drive-folder-')) {
+      try {
+        folderId = await ensureAlbumDriveFolder(currentSelectedAlbum);
+      } catch {
+        folderId = '';
+      }
+    }
+
+    if (!folderId || folderId.startsWith('drive-folder-')) {
+      setIsSyncing(false);
+      setErrorMessage('ยังไม่มีโฟลเดอร์ Google Drive สำหรับอัลบั้มนี้');
+      return;
+    }
+
+    try {
+      const albumToSync = { ...currentSelectedAlbum, driveFolderId: folderId };
+      const result = await syncPhotosFromDriveFolder(albumToSync, currentUser);
+      setIsSyncing(false);
+      if (result.addedCount > 0) {
+        setSyncSuccessMessage(`ซิงค์สำเร็จ! นำเข้ารูปภาพใหม่ ${result.addedCount} รูป (รวมทั้งหมด ${result.totalCount} รูป)`);
+        onPhotosUploaded(result.addedCount);
+      } else {
+        setSyncSuccessMessage(`ข้อมูลเป็นปัจจุบันแล้ว: ตรวจสอบพบ ${result.totalCount} รูปภาพใน Google Drive (ไม่มีรูปใหม่ซ้ำ)`);
+      }
+    } catch (err: any) {
+      setIsSyncing(false);
+      console.error('Sync Drive error:', err);
+      if (err.message?.includes('Google') || err.code === 'GOOGLE_LOGIN_REQUIRED') {
+        setErrorMessage('กรุณาเข้าสู่ระบบ Google ใหม่อีกครั้งเพื่อรับสิทธิ์เข้าถึง Google Drive');
+        if (onOpenGmailAuth) onOpenGmailAuth();
+      } else {
+        setErrorMessage(err.message || 'เกิดข้อผิดพลาดในการซิงค์รูปภาพจาก Google Drive');
+      }
     }
   };
 
@@ -387,6 +470,22 @@ export const BulkUploaderView: React.FC<BulkUploaderViewProps> = ({
         </div>
       )}
 
+      {/* Sync Success Message Box */}
+      {syncSuccessMessage && (
+        <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-2xl flex items-center justify-between gap-3 animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{syncSuccessMessage}</span>
+          </div>
+          <button
+            onClick={() => setCurrentView('album-detail')}
+            className="px-3 py-1.5 bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-700 transition-colors shrink-0"
+          >
+            เปิดดูแกลเลอรี
+          </button>
+        </div>
+      )}
+
       {/* Fast 3-Photo Test Action Bar */}
       <div className="p-4 bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 border border-blue-200 rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -438,19 +537,30 @@ export const BulkUploaderView: React.FC<BulkUploaderViewProps> = ({
         </div>
 
         <h3 className="text-lg sm:text-xl font-bold text-slate-900">
-          ลากรูปภาพความละเอียดสูงมาวางที่นี่
+          อัปโหลดรูปภาพผ่าน Google Drive
         </h3>
         <p className="text-xs sm:text-sm text-slate-500 mt-1 max-w-lg mx-auto">
-          หรือคลิกปุ่มด้านล่างเพื่อเลือกลำดับไฟล์ภาพจากคอมพิวเตอร์ของคุณ ระบบจะส่งไฟล์ต้นฉบับไปยัง Google Drive และบันทึก Metadata ลง Firestore อัตโนมัติ
+          อัปโหลดรูปใน Google Drive ของอัลบั้มนี้โดยตรง จากนั้นกด “ซิงค์รูปจาก Google Drive” เพื่ออัปเดตแกลเลอรีอัตโนมัติ
         </p>
 
         <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
           <button
-            onClick={() => fileInputRef.current?.click()}
+            onClick={handleOpenDriveFolder}
             className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-semibold rounded-xl shadow-md shadow-blue-500/25 active:scale-98 transition-all"
+            title="เปิดโฟลเดอร์ Google Drive ของอัลบั้มปัจจุบันในแท็บใหม่"
           >
             <FolderOpen className="w-4 h-4" />
-            <span>เลือกไฟล์ภาพจากคอมพิวเตอร์</span>
+            <span>เปิด Google Drive เพื่ออัปโหลด</span>
+          </button>
+
+          <button
+            onClick={handleSyncDrivePhotos}
+            disabled={isSyncing}
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs sm:text-sm font-semibold rounded-xl shadow-md shadow-emerald-500/20 active:scale-98 transition-all"
+            title="อ่านรูปภาพจาก Google Drive และบันทึก Metadata เข้าสู่ Firestore"
+          >
+            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span>{isSyncing ? 'กำลังซิงค์รูปภาพ...' : 'ซิงค์รูปจาก Google Drive'}</span>
           </button>
 
           {!hasDriveToken && onOpenGmailAuth && (
@@ -463,6 +573,7 @@ export const BulkUploaderView: React.FC<BulkUploaderViewProps> = ({
             </button>
           )}
         </div>
+
 
         {/* Processing Options Bar */}
         <div className="mt-8 pt-6 border-t border-slate-100 flex flex-wrap items-center justify-center gap-4 sm:gap-6 text-xs text-slate-600">
