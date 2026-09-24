@@ -168,6 +168,8 @@ export const BulkUploaderView: React.FC<BulkUploaderViewProps> = ({
       const selectedFiles = await openGooglePhotoPicker({
         folderId,
         albumTitle: currentSelectedAlbum.title,
+        currentUser,
+        userEmail: currentUser?.email,
         onAuthRequired: onOpenGmailAuth
       });
 
@@ -191,7 +193,9 @@ export const BulkUploaderView: React.FC<BulkUploaderViewProps> = ({
     } catch (err: any) {
       setIsSyncing(false);
       console.error('Sync Drive Picker error:', err);
-      if (err.message?.includes('Google') || err.code === 'GOOGLE_LOGIN_REQUIRED') {
+      if (err.message?.includes('ไม่ตรงกับบัญชีที่เข้าสู่ระบบ')) {
+        setErrorMessage(err.message);
+      } else if (err.message?.includes('Google') || err.code === 'GOOGLE_LOGIN_REQUIRED') {
         setErrorMessage('กรุณาเข้าสู่ระบบ Google ใหม่อีกครั้งเพื่อรับสิทธิ์เข้าถึง Google Drive');
         if (onOpenGmailAuth) onOpenGmailAuth();
       } else {
@@ -204,14 +208,15 @@ export const BulkUploaderView: React.FC<BulkUploaderViewProps> = ({
    * Helper to ensure the target album has a real Google Drive folder
    */
   const ensureAlbumDriveFolder = async (targetAlbum: Album): Promise<string> => {
-    const token = getCachedAccessToken();
-    if (!token) {
-      return targetAlbum.driveFolderId || `drive-folder-${targetAlbum.id}`;
-    }
-
-    // If folder id is already a real Drive ID (not prefixed with mock `drive-folder-`)
+    // 1. If folder id is already a real Google Drive ID, return immediately without needing token
     if (targetAlbum.driveFolderId && !targetAlbum.driveFolderId.startsWith('drive-folder-')) {
       return targetAlbum.driveFolderId;
+    }
+
+    // 2. If missing or placeholder, attempt to get valid token to create folder
+    const token = await getValidAccessToken() || getCachedAccessToken();
+    if (!token) {
+      return targetAlbum.driveFolderId || `drive-folder-${targetAlbum.id}`;
     }
 
     try {

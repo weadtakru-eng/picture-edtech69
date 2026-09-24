@@ -24,7 +24,7 @@ import {
   RefreshCw,
   AlertCircle
 } from 'lucide-react';
-import { Album, Photo, AppView } from '../types';
+import { Album, Photo, AppView, GmailUser } from '../types';
 import { getDownloadUrl } from '../services/googleDriveService';
 import { syncPhotosFromDriveFolder, syncPhotosFromPicker } from '../services/firebaseService';
 import { openGooglePhotoPicker } from '../services/googlePickerService';
@@ -37,6 +37,7 @@ interface AlbumDetailViewProps {
   onOpenPhotoLightbox: (photo: Photo) => void;
   selectedPhotoIds: string[];
   togglePhotoSelection: (id: string) => void;
+  currentUser?: GmailUser | null;
 }
 
 export const AlbumDetailView: React.FC<AlbumDetailViewProps> = ({
@@ -46,7 +47,8 @@ export const AlbumDetailView: React.FC<AlbumDetailViewProps> = ({
   setCurrentView,
   onOpenPhotoLightbox,
   selectedPhotoIds,
-  togglePhotoSelection
+  togglePhotoSelection,
+  currentUser
 }) => {
   const [activeSubcategory, setActiveSubcategory] = useState<string>('ทั้งหมด');
   const [photoSearch, setPhotoSearch] = useState<string>('');
@@ -82,7 +84,9 @@ export const AlbumDetailView: React.FC<AlbumDetailViewProps> = ({
       // Open Google Picker pre-scoped to album's Drive folder under least privilege drive.file
       const selectedFiles = await openGooglePhotoPicker({
         folderId: album.driveFolderId,
-        albumTitle: album.title
+        albumTitle: album.title,
+        currentUser,
+        userEmail: currentUser?.email
       });
 
       // User closed or cancelled Picker without selecting: cleanly exit without error
@@ -91,7 +95,7 @@ export const AlbumDetailView: React.FC<AlbumDetailViewProps> = ({
         return;
       }
 
-      const res = await syncPhotosFromPicker(album, selectedFiles);
+      const res = await syncPhotosFromPicker(album, selectedFiles, currentUser);
       setIsSyncing(false);
       if (res.addedCount > 0) {
         const dupInfo = res.duplicateCount > 0 ? ` (ข้ามรูปซ้ำ ${res.duplicateCount} รูป)` : '';

@@ -1,5 +1,6 @@
 import firebaseConfig from '../../firebase-applet-config.json';
-import { getCachedAccessToken, getValidAccessToken } from '../lib/firebase';
+import { getCachedAccessToken, getValidAccessToken, auth, logSafeOAuthDiagnostic } from '../lib/firebase';
+import { GmailUser } from '../types';
 
 export interface GooglePickerFile {
   id: string;
@@ -76,18 +77,41 @@ export function loadGooglePickerApi(): Promise<void> {
 export async function openGooglePhotoPicker(options: {
   folderId?: string;
   albumTitle?: string;
+  userEmail?: string;
+  currentUser?: GmailUser | null;
   onAuthRequired?: () => void;
 }): Promise<GooglePickerFile[]> {
-  // 1. Ensure valid access token (in-memory only)
-  let token = getCachedAccessToken();
+  const targetEmail = options.userEmail || options.currentUser?.email || auth.currentUser?.email || null;
+
+  // 1. Ensure valid access token specifically matching current user
+  let token: string | null = null;
+  try {
+    token = await getValidAccessToken(targetEmail);
+  } catch (err: any) {
+    logSafeOAuthDiagnostic('Picker Token Fetch Failed', {
+      firebaseEmail: targetEmail,
+      loginHint: targetEmail,
+      errorCode: err?.code,
+      errorType: err?.name,
+      errorSubtype: err?.message,
+      pickerOpenStatus: 'FAILED_TOKEN'
+    });
+    throw err;
+  }
+
   if (!token) {
-    token = await getValidAccessToken();
+    token = getCachedAccessToken();
   }
 
   if (!token) {
     if (options.onAuthRequired) {
       options.onAuthRequired();
     }
+    logSafeOAuthDiagnostic('Picker Token Missing', {
+      firebaseEmail: targetEmail,
+      loginHint: targetEmail,
+      pickerOpenStatus: 'ABORTED_NO_TOKEN'
+    });
     throw new Error('กรุณาลงชื่อเข้าใช้ด้วยบัญชี Google เพื่อเปิดใช้งาน Google Drive');
   }
 
@@ -96,8 +120,18 @@ export async function openGooglePhotoPicker(options: {
 
   const google = (window as any).google;
   if (!google?.picker) {
+    logSafeOAuthDiagnostic('Google Picker API Unavailable', {
+      firebaseEmail: targetEmail,
+      pickerOpenStatus: 'API_UNAVAILABLE'
+    });
     throw new Error('Google Picker API ยังไม่พร้อมใช้งาน กรุณาลองใหม่อีกครั้ง');
   }
+
+  logSafeOAuthDiagnostic('Opening Google Picker', {
+    firebaseEmail: targetEmail,
+    loginHint: targetEmail,
+    pickerOpenStatus: 'OPENING'
+  });
 
   return new Promise<GooglePickerFile[]>((resolve, reject) => {
     try {
@@ -112,12 +146,16 @@ export async function openGooglePhotoPicker(options: {
         docsView.setParent(options.folderId);
       }
 
-      // 4. Build Picker with least privilege drive.file scope & OAuth token
+      // 4. Dedicated Google Picker API key from environment variable (never hardcoded)
+      const pickerApiKey = (import.meta.env.VITE_GOOGLE_PICKER_API_KEY || firebaseConfig.apiKey || '').trim();
+      const googleCloudProjectNumber = '492271785891';
+
+      // Build Picker with least privilege drive.file scope & OAuth token
       const builder = new google.picker.PickerBuilder()
         .addView(docsView)
         .setOAuthToken(token)
-        .setDeveloperKey(firebaseConfig.apiKey)
-        .setAppId(firebaseConfig.messagingSenderId)
+        .setDeveloperKey(pickerApiKey)
+        .setAppId(googleCloudProjectNumber)
         .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
         .setLocale('th')
         .setTitle(options.albumTitle ? `เลือกรูปภาพสำหรับอัลบั้ม: ${options.albumTitle}` : 'เลือกรูปภาพเพื่อซิงค์เข้าสู่อัลบั้ม')
@@ -128,6 +166,10 @@ export async function openGooglePhotoPicker(options: {
 
         if (action === google.picker.Action.PICKED) {
           const documents = data[google.picker.Response.DOCUMENTS] || [];
+          logSafeOAuthDiagnostic('Picker Documents Picked', {
+            firebaseEmail: targetEmail,
+            pickerOpenStatus: `PICKED_${documents.length}_FILES`
+          });
           const files: GooglePickerFile[] = documents.map((doc: any) => ({
             id: doc.id,
             name: doc.name,
@@ -140,6 +182,10 @@ export async function openGooglePhotoPicker(options: {
           }));
           resolve(files);
         } else if (action === google.picker.Action.CANCEL) {
+          logSafeOAuthDiagnostic('Picker Cancelled', {
+            firebaseEmail: targetEmail,
+            pickerOpenStatus: 'CANCELLED'
+          });
           // User closed or cancelled picker: resolve with empty array (no error)
           resolve([]);
         }
@@ -148,7 +194,13 @@ export async function openGooglePhotoPicker(options: {
       const picker = builder.build();
       picker.setVisible(true);
     } catch (err: any) {
-      console.error('Failed to initialize Google Picker:', err);
+      logSafeOAuthDiagnostic('Google Picker Initialization Error', {
+        firebaseEmail: targetEmail,
+        errorCode: err?.code,
+        errorType: err?.name,
+        errorSubtype: err?.message,
+        pickerOpenStatus: 'ERROR'
+      });
       reject(err);
     }
   });

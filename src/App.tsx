@@ -363,6 +363,7 @@ export default function App() {
                 onOpenPhotoLightbox={(p) => setActiveLightboxPhoto(p)}
                 selectedPhotoIds={selectedPhotoIds}
                 togglePhotoSelection={handleTogglePhotoSelection}
+                currentUser={currentUser}
               />
             )}
 
