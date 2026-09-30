@@ -13,6 +13,7 @@ import {
   saveAlbumToFirestore, 
   savePhotoToFirestore, 
   deletePhotoFromFirestore,
+  deleteAlbumFromFirestore,
   setAlbumCoverPhoto,
   seedInitialDataIfEmpty,
   subscribeAuthState,
@@ -31,6 +32,7 @@ import { CreateAlbumModal } from './components/CreateAlbumModal';
 import { BatchActionDock } from './components/BatchActionDock';
 import { GmailAuthModal } from './components/GmailAuthModal';
 import { PublicAlbumView } from './components/PublicAlbumView';
+import { OAuthOriginWarningBanner } from './components/OAuthOriginWarningBanner';
 
 const DEFAULT_GMAIL_USER: GmailUser = {
   name: 'Rajinibon TV (งานโสตฯ)',
@@ -56,8 +58,14 @@ export default function App() {
     if (hash.startsWith('#public-album/')) {
       return hash.replace('#public-album/', '');
     }
+    if (hash.startsWith('#album/')) {
+      return hash.replace('#album/', '');
+    }
     return null;
   });
+
+  // State for creating or editing album
+  const [albumToEdit, setAlbumToEdit] = useState<Album | null>(null);
 
   // Gmail User Auth state backed by Firebase Authentication
   const [currentUser, setCurrentUser] = useState<GmailUser | null>(() => {
@@ -102,6 +110,8 @@ export default function App() {
       const hash = window.location.hash;
       if (hash.startsWith('#public-album/')) {
         setPublicShareToken(hash.replace('#public-album/', ''));
+      } else if (hash.startsWith('#album/')) {
+        setPublicShareToken(hash.replace('#album/', ''));
       } else {
         setPublicShareToken(null);
       }
@@ -199,14 +209,40 @@ export default function App() {
     }
   };
 
-  const handleCreateAlbum = async (newAlbum: Album) => {
-    setAlbums(prev => [newAlbum, ...prev]);
-    setSelectedAlbum(newAlbum);
-    setCurrentView('bulk-upload');
+  const handleCreateAlbum = async (targetAlbum: Album) => {
+    setAlbums(prev => {
+      const exists = prev.some(a => a.id === targetAlbum.id);
+      if (exists) {
+        return prev.map(a => a.id === targetAlbum.id ? targetAlbum : a);
+      }
+      return [targetAlbum, ...prev];
+    });
+    setSelectedAlbum(targetAlbum);
     try {
-      await saveAlbumToFirestore(newAlbum);
+      await saveAlbumToFirestore(targetAlbum);
     } catch (e) {
-      console.warn('Failed to save new album to Firestore:', e);
+      console.warn('Failed to save album to Firestore:', e);
+    }
+  };
+
+  const handleDeleteAlbum = async (albumId: string) => {
+    if (confirm('คุณต้องการลบอัลบั้มนี้ออกจากระบบหรือไม่? (ไฟล์ใน Google Drive จะไม่ถูกลบ)')) {
+      try {
+        await deleteAlbumFromFirestore(albumId);
+        setAlbums(prev => prev.filter(a => a.id !== albumId));
+      } catch (e) {
+        console.error('Failed to delete album:', e);
+      }
+    }
+  };
+
+  const handleTogglePublish = async (album: Album) => {
+    const updated = { ...album, isPublished: album.isPublished === false };
+    setAlbums(prev => prev.map(a => a.id === album.id ? updated : a));
+    try {
+      await saveAlbumToFirestore(updated);
+    } catch (e) {
+      console.error('Failed to toggle album publish status:', e);
     }
   };
 
@@ -273,6 +309,9 @@ export default function App() {
         onOpenGmailAuth={() => setIsGmailAuthOpen(true)}
       />
 
+      {/* Google OAuth Origin Mismatch Prevention Warning */}
+      <OAuthOriginWarningBanner />
+
       {/* Main Content Area */}
       {isMobileMockup ? (
         <MobileDeviceMockup
@@ -308,7 +347,16 @@ export default function App() {
                 recentActivities={RECENT_ACTIVITIES}
                 setCurrentView={setCurrentView}
                 setSelectedAlbum={setSelectedAlbum}
-                onOpenCreateAlbum={() => setIsCreateAlbumOpen(true)}
+                onOpenCreateAlbum={() => {
+                  setAlbumToEdit(null);
+                  setIsCreateAlbumOpen(true);
+                }}
+                onEditAlbum={(alb) => {
+                  setAlbumToEdit(alb);
+                  setIsCreateAlbumOpen(true);
+                }}
+                onDeleteAlbum={handleDeleteAlbum}
+                onTogglePublish={handleTogglePublish}
                 searchQuery={searchQuery}
                 currentUser={currentUser}
                 onOpenGmailAuth={() => setIsGmailAuthOpen(true)}
@@ -322,7 +370,16 @@ export default function App() {
                 recentActivities={RECENT_ACTIVITIES}
                 setCurrentView={setCurrentView}
                 setSelectedAlbum={setSelectedAlbum}
-                onOpenCreateAlbum={() => setIsCreateAlbumOpen(true)}
+                onOpenCreateAlbum={() => {
+                  setAlbumToEdit(null);
+                  setIsCreateAlbumOpen(true);
+                }}
+                onEditAlbum={(alb) => {
+                  setAlbumToEdit(alb);
+                  setIsCreateAlbumOpen(true);
+                }}
+                onDeleteAlbum={handleDeleteAlbum}
+                onTogglePublish={handleTogglePublish}
                 searchQuery={searchQuery}
                 currentUser={currentUser}
                 onOpenGmailAuth={() => setIsGmailAuthOpen(true)}
@@ -426,11 +483,15 @@ export default function App() {
         onNext={handleNextPhoto}
       />
 
-      {/* Create Album Modal */}
+      {/* Create / Edit Album Modal */}
       <CreateAlbumModal
         isOpen={isCreateAlbumOpen}
-        onClose={() => setIsCreateAlbumOpen(false)}
+        onClose={() => {
+          setIsCreateAlbumOpen(false);
+          setAlbumToEdit(null);
+        }}
         onCreateAlbum={handleCreateAlbum}
+        albumToEdit={albumToEdit}
       />
 
       {/* Gmail / Google Auth Modal */}

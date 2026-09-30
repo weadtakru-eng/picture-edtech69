@@ -28,6 +28,7 @@ import { Album, Photo, AppView, GmailUser } from '../types';
 import { getDownloadUrl } from '../services/googleDriveService';
 import { syncPhotosFromDriveFolder, syncPhotosFromPicker } from '../services/firebaseService';
 import { openGooglePhotoPicker } from '../services/googlePickerService';
+import { openGoogleDrive } from '../utils/academicYearUtils';
 
 interface AlbumDetailViewProps {
   album: Album;
@@ -61,12 +62,11 @@ export const AlbumDetailView: React.FC<AlbumDetailViewProps> = ({
 
   const handleOpenDriveFolder = () => {
     setSyncError(null);
-    if (!album.driveFolderId || album.driveFolderId.trim() === '' || album.driveFolderId.startsWith('drive-folder-')) {
+    if (!album.driveUrl && (!album.driveFolderId || album.driveFolderId.startsWith('drive-folder-'))) {
       setSyncError('ยังไม่มีโฟลเดอร์ Google Drive สำหรับอัลบั้มนี้');
       return;
     }
-    const driveFolderUrl = `https://drive.google.com/drive/folders/${album.driveFolderId}`;
-    window.open(driveFolderUrl, '_blank', 'noopener,noreferrer');
+    openGoogleDrive(album.driveUrl, album.driveFolderId);
   };
 
   const handleSyncFromDrive = async () => {

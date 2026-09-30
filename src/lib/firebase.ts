@@ -2,6 +2,7 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider, onAuthStateChanged, User } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
+import { validateOriginBeforeGISFlow } from '../utils/oauthVerifier';
 
 // Initialize Firebase App
 export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
@@ -196,6 +197,18 @@ export async function requestAccessTokenViaGIS(options: {
         const requestConfig: any = { prompt: promptType };
         if (loginHint) {
           requestConfig.login_hint = loginHint;
+        }
+
+        // Explicitly validate origin against Google Cloud Console registered origins before initiating GIS flow
+        const originCheck = validateOriginBeforeGISFlow();
+        if (!originCheck.allowed) {
+          logSafeOAuthDiagnostic('Origin Mismatch Detected Before GIS Flow', {
+            firebaseEmail: auth.currentUser?.email,
+            loginHint,
+            errorCode: 'ORIGIN_MISMATCH',
+            errorType: 'UNAUTHORIZED_ORIGIN',
+            errorSubtype: `Origin "${originCheck.verification.currentOrigin}" not registered for client ID "${originCheck.verification.clientId}"`
+          });
         }
 
         logSafeOAuthDiagnostic('Requesting GIS Access Token', {

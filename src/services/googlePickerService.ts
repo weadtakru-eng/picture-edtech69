@@ -1,5 +1,6 @@
 import firebaseConfig from '../../firebase-applet-config.json';
 import { getCachedAccessToken, getValidAccessToken, auth, logSafeOAuthDiagnostic } from '../lib/firebase';
+import { validateOriginBeforeGISFlow } from '../utils/oauthVerifier';
 import { GmailUser } from '../types';
 
 export interface GooglePickerFile {
@@ -82,6 +83,9 @@ export async function openGooglePhotoPicker(options: {
   onAuthRequired?: () => void;
 }): Promise<GooglePickerFile[]> {
   const targetEmail = options.userEmail || options.currentUser?.email || auth.currentUser?.email || null;
+
+  // Explicitly validate origin against Google Cloud Console registered origins before starting Drive Picker/GIS flow
+  validateOriginBeforeGISFlow();
 
   // 1. Ensure valid access token specifically matching current user
   let token: string | null = null;
