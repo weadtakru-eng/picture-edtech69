@@ -66,9 +66,13 @@ export const LoginAndStatesView: React.FC<LoginAndStatesViewProps> = ({
       setPinSuccess(true);
       setPinError(false);
       setTimeout(() => {
-        const parentsAlbum = albums.find(a => a.id === 'parents-meeting-2569') || albums[0];
-        setSelectedAlbum(parentsAlbum);
-        setCurrentView('album-detail');
+        const targetAlbum = albums.find(a => a.id === 'parents-meeting-2569') || albums[0];
+        if (targetAlbum) {
+          setSelectedAlbum(targetAlbum);
+          setCurrentView('album-detail');
+        } else {
+          setCurrentView('dashboard');
+        }
       }, 1000);
     } else {
       setPinError(true);

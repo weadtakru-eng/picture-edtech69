@@ -1,20 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  INITIAL_ALBUMS, 
-  INITIAL_PHOTOS, 
-  INITIAL_UPLOAD_QUEUE, 
-  TOP_SHARED_LINKS, 
-  RECENT_ACTIVITIES 
-} from './data/mockData';
-import { Album, Photo, UploadQueueItem, AppView, GmailUser } from './types';
+import { Album, Photo, UploadQueueItem, AppView, GmailUser, ActivityItem } from './types';
 import { 
   subscribeAlbums, 
   subscribePhotos, 
+  subscribeActivityLogs,
   saveAlbumToFirestore, 
   savePhotoToFirestore, 
   deletePhotoFromFirestore,
   setAlbumCoverPhoto,
-  seedInitialDataIfEmpty,
   subscribeAuthState,
   logoutFirebase
 } from './services/firebaseService';
@@ -32,24 +25,15 @@ import { BatchActionDock } from './components/BatchActionDock';
 import { GmailAuthModal } from './components/GmailAuthModal';
 import { PublicAlbumView } from './components/PublicAlbumView';
 import { OAuthOriginWarningBanner } from './components/OAuthOriginWarningBanner';
-
-const DEFAULT_GMAIL_USER: GmailUser = {
-  name: 'Rajinibon TV (งานโสตฯ)',
-  email: 'rajinibontv@rajinibon.ac.th',
-  avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80',
-  role: 'ผู้ดูแลระบบโสตทัศนูปกรณ์ & สื่อโทรทัศน์',
-  department: 'ฝ่ายโสตทัศนูปกรณ์และประชาสัมพันธ์',
-  organization: 'โรงเรียนราชินีบน',
-  isStaff: true,
-  signedInAt: 'วันนี้ 09:30 น.'
-};
+import { FolderKanban, PlusCircle } from 'lucide-react';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<AppView>('dashboard');
-  const [albums, setAlbums] = useState<Album[]>(INITIAL_ALBUMS);
-  const [photos, setPhotos] = useState<Photo[]>(INITIAL_PHOTOS);
-  const [selectedAlbum, setSelectedAlbum] = useState<Album>(INITIAL_ALBUMS[0]);
-  const [queue, setQueue] = useState<UploadQueueItem[]>(INITIAL_UPLOAD_QUEUE);
+  const [albums, setAlbums] = useState<Album[]>([]);
+  const [photos, setPhotos] = useState<Photo[]>([]);
+  const [selectedAlbum, setSelectedAlbum] = useState<Album | null>(null);
+  const [recentActivities, setRecentActivities] = useState<ActivityItem[]>([]);
+  const [queue, setQueue] = useState<UploadQueueItem[]>([]);
   
   // Public Viewer Token state
   const [publicShareToken, setPublicShareToken] = useState<string | null>(() => {
@@ -111,29 +95,47 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHash);
   }, []);
 
-  // Subscribe to real-time Firestore albums & photos (project: picture edtech)
+  // Section 12: Clear demo state from LocalStorage on boot without touching real auth
   useEffect(() => {
-    seedInitialDataIfEmpty();
+    try {
+      const demoKeys = ['demo_albums', 'demo_photos', 'demo_stats', 'seed_state', 'mock_user'];
+      demoKeys.forEach(key => localStorage.removeItem(key));
+    } catch (e) {
+      // ignore
+    }
+  }, []);
+
+  // Subscribe to real-time Firestore albums, photos & activity logs (project: picture edtech)
+  useEffect(() => {
     const unsubAlbums = subscribeAlbums((remoteAlbums) => {
-      if (remoteAlbums && remoteAlbums.length > 0) {
-        setAlbums(remoteAlbums);
-      }
+      const list = remoteAlbums || [];
+      setAlbums(list);
+      setSelectedAlbum(prev => {
+        if (list.length === 0) return null;
+        if (prev && list.some(a => a.id === prev.id)) {
+          return list.find(a => a.id === prev.id) || list[0];
+        }
+        return list[0];
+      });
     });
 
     const unsubPhotos = subscribePhotos((remotePhotos) => {
-      if (remotePhotos && remotePhotos.length > 0) {
-        setPhotos(remotePhotos);
-      }
+      setPhotos(remotePhotos || []);
+    });
+
+    const unsubLogs = subscribeActivityLogs((remoteLogs) => {
+      setRecentActivities(remoteLogs || []);
     });
 
     return () => {
       unsubAlbums();
       unsubPhotos();
+      unsubLogs();
     };
   }, []);
 
   // Selection and Lightbox
-  const [selectedPhotoIds, setSelectedPhotoIds] = useState<string[]>(['p-smt-01', 'p-smt-02', 'p-smt-04', 'p-smt-05']);
+  const [selectedPhotoIds, setSelectedPhotoIds] = useState<string[]>([]);
   const [activeLightboxPhoto, setActiveLightboxPhoto] = useState<Photo | null>(null);
 
   // Sync user with local storage and auth
@@ -165,10 +167,10 @@ export default function App() {
   };
 
   const handleSetCover = async () => {
-    if (selectedPhotoIds.length > 0) {
+    if (selectedPhotoIds.length > 0 && selectedAlbum) {
       const photo = photos.find(p => p.id === selectedPhotoIds[0]);
       if (photo) {
-        const updatedAlbum = { ...selectedAlbum, coverUrl: photo.url, coverDriveFileId: photo.driveFileId };
+        const updatedAlbum: Album = { ...selectedAlbum, coverUrl: photo.url, coverDriveFileId: photo.driveFileId };
         setAlbums(prev => prev.map(a => a.id === selectedAlbum.id ? updatedAlbum : a));
         setSelectedAlbum(updatedAlbum);
         try {
@@ -188,11 +190,12 @@ export default function App() {
   const handleDeleteSelected = async () => {
     if (confirm(`คุณต้องการลบรูปภาพที่เลือก ${selectedPhotoIds.length} รูปหรือไม่?`)) {
       const idsToDelete = [...selectedPhotoIds];
+      const albumId = selectedAlbum?.id;
       setPhotos(prev => prev.filter(p => !idsToDelete.includes(p.id)));
       setSelectedPhotoIds([]);
       for (const pid of idsToDelete) {
         try {
-          await deletePhotoFromFirestore(pid, selectedAlbum.id);
+          await deletePhotoFromFirestore(pid, albumId);
         } catch (e) {
           console.warn('Failed to delete photo from Firestore:', e);
         }
@@ -212,7 +215,8 @@ export default function App() {
   };
 
   const handlePhotosUploaded = async (count: number) => {
-    const updated = { ...selectedAlbum, photoCount: selectedAlbum.photoCount + count };
+    if (!selectedAlbum) return;
+    const updated: Album = { ...selectedAlbum, photoCount: selectedAlbum.photoCount + count };
     setAlbums(prev => prev.map(a => 
       a.id === selectedAlbum.id ? updated : a
     ));
@@ -308,8 +312,8 @@ export default function App() {
             {currentView === 'dashboard' && (
               <DashboardView
                 albums={albums}
-                topLinks={TOP_SHARED_LINKS}
-                recentActivities={RECENT_ACTIVITIES}
+                topLinks={[]}
+                recentActivities={recentActivities}
                 setCurrentView={setCurrentView}
                 setSelectedAlbum={setSelectedAlbum}
                 onOpenCreateAlbum={() => setIsCreateAlbumOpen(true)}
@@ -322,8 +326,8 @@ export default function App() {
             {currentView === 'albums' && (
               <DashboardView
                 albums={albums}
-                topLinks={TOP_SHARED_LINKS}
-                recentActivities={RECENT_ACTIVITIES}
+                topLinks={[]}
+                recentActivities={recentActivities}
                 setCurrentView={setCurrentView}
                 setSelectedAlbum={setSelectedAlbum}
                 onOpenCreateAlbum={() => setIsCreateAlbumOpen(true)}
@@ -334,59 +338,128 @@ export default function App() {
             )}
 
             {currentView === 'album-detail' && (
-              <AlbumDetailView
-                album={selectedAlbum}
-                photos={photos}
-                onBack={() => setCurrentView('dashboard')}
-                setCurrentView={setCurrentView}
-                onOpenPhotoLightbox={(p) => setActiveLightboxPhoto(p)}
-                selectedPhotoIds={selectedPhotoIds}
-                togglePhotoSelection={handleTogglePhotoSelection}
-              />
+              selectedAlbum ? (
+                <AlbumDetailView
+                  album={selectedAlbum}
+                  photos={photos}
+                  onBack={() => setCurrentView('dashboard')}
+                  setCurrentView={setCurrentView}
+                  onOpenPhotoLightbox={(p) => setActiveLightboxPhoto(p)}
+                  selectedPhotoIds={selectedPhotoIds}
+                  togglePhotoSelection={handleTogglePhotoSelection}
+                  currentUser={currentUser}
+                />
+              ) : (
+                <div className="bg-white rounded-3xl p-12 text-center border border-slate-200/80 max-w-md mx-auto my-12 space-y-4">
+                  <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
+                    <FolderKanban className="w-6 h-6" />
+                  </div>
+                  <h3 className="font-bold text-slate-800 text-base">ยังไม่มีอัลบั้มที่เลือก</h3>
+                  <p className="text-xs text-slate-500">กรุณาสร้างอัลบั้มภาพใหม่เพื่อเริ่มใช้งานคลังสื่อโสตทัศนศึกษา</p>
+                  <button
+                    onClick={() => setIsCreateAlbumOpen(true)}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-xs"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    <span>+ สร้างอัลบั้มใหม่</span>
+                  </button>
+                </div>
+              )
             )}
 
             {currentView === 'bulk-upload' && (
-              <BulkUploaderView
-                album={selectedAlbum}
-                albums={albums}
-                queue={queue}
-                setQueue={setQueue}
-                setCurrentView={setCurrentView}
-                onPhotosUploaded={handlePhotosUploaded}
-                currentUser={currentUser}
-                onOpenGmailAuth={() => setIsGmailAuthOpen(true)}
-              />
+              selectedAlbum ? (
+                <BulkUploaderView
+                  album={selectedAlbum}
+                  albums={albums}
+                  queue={queue}
+                  setQueue={setQueue}
+                  setCurrentView={setCurrentView}
+                  onPhotosUploaded={handlePhotosUploaded}
+                  currentUser={currentUser}
+                  onOpenGmailAuth={() => setIsGmailAuthOpen(true)}
+                />
+              ) : (
+                <div className="bg-white rounded-3xl p-12 text-center border border-slate-200/80 max-w-md mx-auto my-12 space-y-4">
+                  <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
+                    <FolderKanban className="w-6 h-6" />
+                  </div>
+                  <h3 className="font-bold text-slate-800 text-base">กรุณาเลือกหรือสร้างอัลบั้มก่อนอัปโหลด</h3>
+                  <p className="text-xs text-slate-500">สร้างอัลบั้มภาพกิจกรรมใหม่เพื่อนำเข้ารูปภาพจาก Google Drive</p>
+                  <button
+                    onClick={() => setIsCreateAlbumOpen(true)}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-xs"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    <span>+ สร้างอัลบั้มใหม่</span>
+                  </button>
+                </div>
+              )
             )}
 
             {currentView === 'all-photos' && (
-              <AlbumDetailView
-                album={selectedAlbum}
-                photos={photos}
-                onBack={() => setCurrentView('dashboard')}
-                setCurrentView={setCurrentView}
-                onOpenPhotoLightbox={(p) => setActiveLightboxPhoto(p)}
-                selectedPhotoIds={selectedPhotoIds}
-                togglePhotoSelection={handleTogglePhotoSelection}
-                currentUser={currentUser}
-              />
+              selectedAlbum ? (
+                <AlbumDetailView
+                  album={selectedAlbum}
+                  photos={photos}
+                  onBack={() => setCurrentView('dashboard')}
+                  setCurrentView={setCurrentView}
+                  onOpenPhotoLightbox={(p) => setActiveLightboxPhoto(p)}
+                  selectedPhotoIds={selectedPhotoIds}
+                  togglePhotoSelection={handleTogglePhotoSelection}
+                  currentUser={currentUser}
+                />
+              ) : (
+                <div className="bg-white rounded-3xl p-12 text-center border border-slate-200/80 max-w-md mx-auto my-12 space-y-4">
+                  <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
+                    <FolderKanban className="w-6 h-6" />
+                  </div>
+                  <h3 className="font-bold text-slate-800 text-base">ยังไม่มีรูปภาพในคลัง</h3>
+                  <p className="text-xs text-slate-500">เริ่มต้นสร้างอัลบั้มแรกและนำเข้ารูปภาพ</p>
+                  <button
+                    onClick={() => setIsCreateAlbumOpen(true)}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-xs"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    <span>+ สร้างอัลบั้มใหม่</span>
+                  </button>
+                </div>
+              )
             )}
 
             {currentView === 'share-qr' && (
-              <ShareQrView
-                album={selectedAlbum}
-                albums={albums}
-                setSelectedAlbum={setSelectedAlbum}
-                setCurrentView={setCurrentView}
-                currentUser={currentUser}
-                onOpenPublicPreview={(token) => setPublicShareToken(token)}
-              />
+              selectedAlbum ? (
+                <ShareQrView
+                  album={selectedAlbum}
+                  albums={albums}
+                  setSelectedAlbum={setSelectedAlbum}
+                  setCurrentView={setCurrentView}
+                  currentUser={currentUser}
+                  onOpenPublicPreview={(token) => setPublicShareToken(token)}
+                />
+              ) : (
+                <div className="bg-white rounded-3xl p-12 text-center border border-slate-200/80 max-w-md mx-auto my-12 space-y-4">
+                  <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
+                    <FolderKanban className="w-6 h-6" />
+                  </div>
+                  <h3 className="font-bold text-slate-800 text-base">ยังไม่มีอัลบั้มสำหรับแชร์</h3>
+                  <p className="text-xs text-slate-500">สร้างอัลบั้มภาพกิจกรรมใหม่ก่อนจึงจะสามารถสร้างลิงก์แชร์และ QR Code ได้</p>
+                  <button
+                    onClick={() => setIsCreateAlbumOpen(true)}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-xs"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    <span>+ สร้างอัลบั้มใหม่</span>
+                  </button>
+                </div>
+              )
             )}
 
             {currentView === 'reports' && (
               <DashboardView
                 albums={albums}
-                topLinks={TOP_SHARED_LINKS}
-                recentActivities={RECENT_ACTIVITIES}
+                topLinks={[]}
+                recentActivities={recentActivities}
                 setCurrentView={setCurrentView}
                 setSelectedAlbum={setSelectedAlbum}
                 onOpenCreateAlbum={() => setIsCreateAlbumOpen(true)}

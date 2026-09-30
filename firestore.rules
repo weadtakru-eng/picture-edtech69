@@ -17,8 +17,8 @@ service cloud.firestore {
       allow write: if isSignedIn() && request.auth.uid == userId;
     }
 
-    // Albums collection: Public visitor can read ONLY shared & active albums.
-    // Public CANNOT write albums.
+    // Albums collection: Public visitor can read ONLY shared & published active albums.
+    // Public CANNOT write or delete albums.
     match /albums/{albumId} {
       allow read: if isSignedIn() || (
         resource.data.isShared == true && 
@@ -43,7 +43,7 @@ service cloud.firestore {
     }
 
     // Activity logs: Audit log strictly internal to staff.
-    // Public visitor CANNOT read or tamper with activityLogs.
+    // Public visitor CANNOT read, delete, or tamper with activityLogs.
     match /activityLogs/{logId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn();

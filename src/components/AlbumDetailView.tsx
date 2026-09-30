@@ -112,18 +112,24 @@ export const AlbumDetailView: React.FC<AlbumDetailViewProps> = ({
     }
   };
 
-  const subcategories = [
-    { name: 'ทั้งหมด', count: 428 },
-    { name: 'พิธีเปิด & เวทีใหญ่', count: 86 },
-    { name: 'การนำเสนอโครงงาน SMT', count: 142 },
-    { name: 'นิทรรศการ SLT', count: 120 },
-    { name: 'มอบเกียรติบัตร & ภาพรวม', count: 80 },
-  ];
-
   // Filter photos for this album
   const albumPhotos = useMemo(() => {
     return photos.filter((p) => p.albumId === album.id);
   }, [photos, album.id]);
+
+  const subcategories = useMemo(() => {
+    const counts: Record<string, number> = {};
+    albumPhotos.forEach(p => {
+      if (p.categoryTag) {
+        counts[p.categoryTag] = (counts[p.categoryTag] || 0) + 1;
+      }
+    });
+    const list = [{ name: 'ทั้งหมด', count: albumPhotos.length }];
+    Object.entries(counts).forEach(([name, count]) => {
+      list.push({ name, count });
+    });
+    return list;
+  }, [albumPhotos]);
 
   const filteredPhotos = useMemo(() => {
     return albumPhotos.filter((p) => {

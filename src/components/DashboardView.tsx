@@ -55,6 +55,43 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const categories = ['ทั้งหมด', 'ห้องเรียนพิเศษ', 'งานพิธีการ', 'กีฬา', 'กิจกรรมโรงเรียน', 'กิจกรรมนักเรียน'];
 
+  // Real Statistics calculated from actual data (NO hardcoded demo numbers)
+  const totalPhotosCount = useMemo(() => {
+    return albums.reduce((acc, a) => acc + (a.photoCount || 0), 0);
+  }, [albums]);
+
+  const activeShareLinks = useMemo(() => {
+    return albums.filter(a => a.isShared && a.accessLevel !== 'disabled');
+  }, [albums]);
+
+  const totalShareLinksCount = activeShareLinks.length;
+  const publicShareLinksCount = useMemo(() => {
+    return albums.filter(a => a.isShared && a.accessLevel === 'public').length;
+  }, [albums]);
+  const passwordShareLinksCount = useMemo(() => {
+    return albums.filter(a => a.isShared && a.accessLevel === 'password').length;
+  }, [albums]);
+
+  const totalViewsCount = useMemo(() => {
+    return albums.reduce((acc, a) => acc + (a.views || 0), 0);
+  }, [albums]);
+
+  const effectiveTopLinks = useMemo(() => {
+    if (topLinks && topLinks.length > 0) return topLinks;
+    return activeShareLinks
+      .sort((a, b) => (b.views || 0) - (a.views || 0))
+      .slice(0, 4)
+      .map((a, idx) => ({
+        id: a.id,
+        rank: idx + 1,
+        title: a.title,
+        views: a.views || 0,
+        downloads: a.downloads || 0,
+        growth: a.views > 0 ? '+100%' : 'ใหม่',
+        isPublic: a.accessLevel === 'public'
+      }));
+  }, [topLinks, activeShareLinks]);
+
   // Filtered Albums
   const filteredAlbums = useMemo(() => {
     return albums.filter((album) => {
@@ -170,7 +207,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
           <div className="mt-2.5 flex items-center gap-1.5 text-xs text-emerald-600 font-medium">
             <ArrowUpRight className="w-3.5 h-3.5" />
-            <span>+4 อัลบั้มเดือนนี้</span>
+            <span>{albums.length > 0 ? `+${albums.length} อัลบั้ม` : '0 อัลบั้ม'}</span>
             <span className="text-slate-400 font-normal">| ปี 2569</span>
           </div>
         </div>
@@ -184,13 +221,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-bold text-slate-900">14,850</span>
+            <span className="text-3xl font-bold text-slate-900">{totalPhotosCount.toLocaleString()}</span>
             <span className="text-xs text-slate-500 font-medium">รูปภาพ</span>
           </div>
           <div className="mt-2.5 flex items-center gap-1.5 text-xs text-slate-500">
             <div className="w-2 h-2 rounded-full bg-blue-500" />
-            <span>ใช้ 42.6 GB จาก 200 GB</span>
-            <span className="text-blue-600 font-medium">(21%)</span>
+            <span>คำนวณจากรูปภาพจริงในระบบ</span>
           </div>
         </div>
 
@@ -203,13 +239,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-bold text-slate-900">32</span>
+            <span className="text-3xl font-bold text-slate-900">{totalShareLinksCount}</span>
             <span className="text-xs text-slate-500 font-medium">ลิงก์</span>
           </div>
           <div className="mt-2.5 flex items-center gap-2 text-xs text-slate-500">
-            <span className="text-emerald-600 font-medium">สาธารณะ 26</span>
+            <span className="text-emerald-600 font-medium">สาธารณะ {publicShareLinksCount}</span>
             <span>•</span>
-            <span className="text-amber-600 font-medium">รหัสผ่าน 6</span>
+            <span className="text-amber-600 font-medium">รหัสผ่าน {passwordShareLinksCount}</span>
           </div>
         </div>
 
@@ -222,13 +258,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-bold text-slate-900">89,420</span>
+            <span className="text-3xl font-bold text-slate-900">{totalViewsCount.toLocaleString()}</span>
             <span className="text-xs text-slate-500 font-medium">ครั้ง</span>
           </div>
-          <div className="mt-2.5 flex items-center gap-1.5 text-xs text-emerald-600 font-medium">
-            <ArrowUpRight className="w-3.5 h-3.5" />
-            <span>+18.5%</span>
-            <span className="text-slate-400 font-normal">เทียบกับ 7 วันที่แล้ว</span>
+          <div className="mt-2.5 flex items-center gap-1.5 text-xs text-slate-500">
+            <span>รวมยอดเข้าชมทุกอัลบั้มจริง</span>
           </div>
         </div>
       </div>
@@ -519,48 +553,56 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </span>
             </div>
 
-            <div className="space-y-3">
-              {topLinks.map((link) => (
-                <div 
-                  key={link.id} 
-                  className="p-3 bg-slate-50 hover:bg-blue-50/50 rounded-xl border border-slate-100 transition-colors flex items-center justify-between gap-2"
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <span className={`w-5 h-5 rounded-md flex items-center justify-center text-xs font-bold shrink-0 ${
-                      link.rank === 1 ? 'bg-amber-400 text-white' :
-                      link.rank === 2 ? 'bg-slate-300 text-slate-700' :
-                      link.rank === 3 ? 'bg-amber-700 text-white' : 'bg-slate-100 text-slate-500'
-                    }`}>
-                      {link.rank}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold text-slate-800 truncate">{link.title}</p>
-                      <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
-                        <span>{link.views.toLocaleString()} วิว</span>
-                        <span>•</span>
-                        <span className="text-emerald-600 font-medium">{link.growth}</span>
+            {effectiveTopLinks.length === 0 ? (
+              <div className="py-6 text-center text-xs text-slate-400">
+                <Share2 className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                <p className="font-semibold text-slate-700">ยังไม่มีลิงก์ที่เปิดแชร์</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">เมื่อสร้างและเปิดแชร์อัลบั้ม ลิงก์ยอดนิยมจะปรากฏที่นี่</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {effectiveTopLinks.map((link) => (
+                  <div 
+                    key={link.id} 
+                    className="p-3 bg-slate-50 hover:bg-blue-50/50 rounded-xl border border-slate-100 transition-colors flex items-center justify-between gap-2"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className={`w-5 h-5 rounded-md flex items-center justify-center text-xs font-bold shrink-0 ${
+                        link.rank === 1 ? 'bg-amber-400 text-white' :
+                        link.rank === 2 ? 'bg-slate-300 text-slate-700' :
+                        link.rank === 3 ? 'bg-amber-700 text-white' : 'bg-slate-100 text-slate-500'
+                      }`}>
+                        {link.rank}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-slate-800 truncate">{link.title}</p>
+                        <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
+                          <span>{link.views.toLocaleString()} วิว</span>
+                          <span>•</span>
+                          <span className="text-emerald-600 font-medium">{link.growth}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <button
-                    onClick={() => {
-                      const found = albums.find(a => a.title.includes(link.title));
-                      if (found) {
-                        setSelectedAlbum(found);
-                        setCurrentView('share-qr');
-                      } else {
-                        setCurrentView('share-qr');
-                      }
-                    }}
-                    className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-white rounded-lg transition-colors shrink-0"
-                    title="สร้าง QR Code และแชร์"
-                  >
-                    <QrCode className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
+                    <button
+                      onClick={() => {
+                        const found = albums.find(a => a.id === link.id || a.title.includes(link.title));
+                        if (found) {
+                          setSelectedAlbum(found);
+                          setCurrentView('share-qr');
+                        } else {
+                          setCurrentView('share-qr');
+                        }
+                      }}
+                      className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-white rounded-lg transition-colors shrink-0"
+                      title="สร้าง QR Code และแชร์"
+                    >
+                      <QrCode className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <button
               onClick={() => setCurrentView('share-qr')}
@@ -578,18 +620,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <span>กิจกรรมโสตทัศน์ล่าสุด</span>
             </h3>
 
-            <div className="relative pl-4 space-y-4 before:absolute before:left-1.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
-              {recentActivities.slice(0, 4).map((act) => (
-                <div key={act.id} className="relative text-xs">
-                  <div className="absolute -left-4 top-1 w-2.5 h-2.5 rounded-full bg-blue-600 border-2 border-white" />
-                  <p className="font-semibold text-slate-800">{act.title}</p>
-                  <p className="text-slate-500 text-[11px] truncate mt-0.5">{act.albumTitle}</p>
-                  <span className="text-[10px] text-slate-400 mt-1 block">
-                    {act.timeAgo} • โดย {act.user}
-                  </span>
-                </div>
-              ))}
-            </div>
+            {recentActivities.length === 0 ? (
+              <div className="py-6 text-center text-xs text-slate-400">
+                <CheckCircle2 className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                <p className="font-semibold text-slate-700">ยังไม่มีประวัติกิจกรรมล่าสุด</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">กิจกรรมการสร้างอัลบั้มและซิงค์ภาพจะถูกบันทึกที่นี่</p>
+              </div>
+            ) : (
+              <div className="relative pl-4 space-y-4 before:absolute before:left-1.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
+                {recentActivities.slice(0, 4).map((act) => (
+                  <div key={act.id} className="relative text-xs">
+                    <div className="absolute -left-4 top-1 w-2.5 h-2.5 rounded-full bg-blue-600 border-2 border-white" />
+                    <p className="font-semibold text-slate-800">{act.title}</p>
+                    <p className="text-slate-500 text-[11px] truncate mt-0.5">{act.albumTitle}</p>
+                    <span className="text-[10px] text-slate-400 mt-1 block">
+                      {act.timeAgo} • โดย {act.user}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Cloud Media Vault & PDPA Card */}

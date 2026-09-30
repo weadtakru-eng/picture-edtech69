@@ -29,7 +29,7 @@ interface MobileDeviceMockupProps {
   albums: Album[];
   photos: Photo[];
   queue: UploadQueueItem[];
-  currentAlbum: Album;
+  currentAlbum: Album | null;
   onExitMobile: () => void;
   onOpenPhotoLightbox: (photo: Photo) => void;
   onOpenCreateAlbum: () => void;
@@ -49,9 +49,13 @@ export const MobileDeviceMockup: React.FC<MobileDeviceMockupProps> = ({
   onOpenGmailAuth
 }) => {
   const [mobileTab, setMobileTab] = useState<'home' | 'albums' | 'upload' | 'gallery' | 'profile'>('home');
-  const [activeAlbum, setActiveAlbum] = useState<Album>(currentAlbum);
+  const [activeAlbum, setActiveAlbum] = useState<Album | null>(currentAlbum);
 
-  const albumPhotos = photos.filter(p => p.albumId === activeAlbum.id);
+  const totalPhotosCount = albums.reduce((acc, a) => acc + (a.photoCount || 0), 0);
+  const totalShareLinks = albums.filter(a => a.isShared && a.accessLevel !== 'disabled').length;
+  const totalViews = albums.reduce((acc, a) => acc + (a.views || 0), 0);
+
+  const albumPhotos = photos.filter(p => activeAlbum && p.albumId === activeAlbum.id);
 
   return (
     <div className="flex flex-col items-center justify-center p-2 sm:p-6 bg-slate-900/90 min-h-[calc(100vh-80px)]">
@@ -145,15 +149,15 @@ export const MobileDeviceMockup: React.FC<MobileDeviceMockupProps> = ({
                 </div>
                 <div className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-2xs">
                   <span className="text-[10px] text-slate-400 font-medium">รูปภาพในคลัง</span>
-                  <p className="text-lg font-bold text-blue-600 mt-0.5">14,850 รูป</p>
+                  <p className="text-lg font-bold text-blue-600 mt-0.5">{totalPhotosCount.toLocaleString()} รูป</p>
                 </div>
                 <div className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-2xs">
                   <span className="text-[10px] text-slate-400 font-medium">ลิงก์แชร์</span>
-                  <p className="text-lg font-bold text-emerald-600 mt-0.5">32 ลิงก์</p>
+                  <p className="text-lg font-bold text-emerald-600 mt-0.5">{totalShareLinks} ลิงก์</p>
                 </div>
                 <div className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-2xs">
                   <span className="text-[10px] text-slate-400 font-medium">ยอดเข้าชม</span>
-                  <p className="text-lg font-bold text-indigo-600 mt-0.5">89.4k ครั้ง</p>
+                  <p className="text-lg font-bold text-indigo-600 mt-0.5">{totalViews.toLocaleString()} ครั้ง</p>
                 </div>
               </div>
 
@@ -173,8 +177,12 @@ export const MobileDeviceMockup: React.FC<MobileDeviceMockupProps> = ({
 
                   <button
                     onClick={() => {
-                      navigator.clipboard.writeText('https://album.school.ac.th/a/SMT-2569');
-                      alert('คัดลอกลิงก์เรียบร้อยแล้ว');
+                      if (activeAlbum?.shareUrl) {
+                        navigator.clipboard.writeText(activeAlbum.shareUrl);
+                        alert('คัดลอกลิงก์เรียบร้อยแล้ว');
+                      } else {
+                        alert('ยังไม่มีลิงก์แชร์ กรุณาสร้างอัลบั้มก่อน');
+                      }
                     }}
                     className="flex flex-col items-center gap-1.5"
                   >
@@ -243,65 +251,85 @@ export const MobileDeviceMockup: React.FC<MobileDeviceMockupProps> = ({
           {/* SCREEN 2: Mobile Public Gallery (Image 22) */}
           {mobileTab === 'gallery' && (
             <div className="p-4 space-y-4 pb-20">
-              <div className="flex items-center justify-between">
-                <button
-                  onClick={() => setMobileTab('home')}
-                  className="p-1.5 bg-white rounded-xl border border-slate-200 text-slate-600"
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                </button>
-                <span className="text-xs font-bold text-slate-800 truncate max-w-[200px]">{activeAlbum.title}</span>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(activeAlbum.shareUrl);
-                    alert('คัดลอกลิงก์แชร์แล้ว');
-                  }}
-                  className="p-1.5 bg-white rounded-xl border border-slate-200 text-blue-600"
-                >
-                  <Share2 className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Mini Hero Header */}
-              <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 space-y-2">
-                <span className="text-[10px] font-bold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200">
-                  {activeAlbum.category}
-                </span>
-                <h3 className="text-xs font-extrabold text-slate-900 leading-snug">
-                  {activeAlbum.title}
-                </h3>
-                <p className="text-[11px] text-slate-500">
-                  {activeAlbum.date} • {activeAlbum.photoCount} ภาพ • 4K RAW
-                </p>
-                <button
-                  onClick={() => alert('กำลังดาวน์โหลด ZIP 2.45 GB...')}
-                  className="w-full py-2 bg-blue-600 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-2xs"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>ดาวน์โหลดทั้งอัลบั้ม (ZIP)</span>
-                </button>
-              </div>
-
-              {/* 2-Column Photo Grid (Image 22) */}
-              <div className="grid grid-cols-2 gap-2">
-                {albumPhotos.map((p) => (
-                  <div
-                    key={p.id}
-                    onClick={() => onOpenPhotoLightbox(p)}
-                    className="group relative aspect-4/3 rounded-xl overflow-hidden bg-slate-100 border border-slate-200/80 cursor-pointer"
+              {!activeAlbum ? (
+                <div className="p-8 text-center text-slate-500 bg-white rounded-2xl border border-slate-200">
+                  <p className="text-xs font-semibold text-slate-800">ยังไม่มีอัลบั้มที่เลือก</p>
+                  <p className="text-[11px] text-slate-400 mt-1">กรุณาสร้างอัลบั้มก่อนเพื่อดูแกลเลอรี</p>
+                  <button
+                    onClick={() => setMobileTab('home')}
+                    className="mt-3 px-3 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-semibold"
                   >
-                    <img
-                      src={p.thumbnailUrl}
-                      alt=""
-                      className="w-full h-full object-cover"
-                      referrerPolicy="no-referrer"
-                    />
-                    <span className="absolute top-1.5 left-1.5 px-1 py-0.2 rounded text-[8px] font-bold bg-blue-600/90 text-white">
-                      4K
-                    </span>
+                    กลับหน้าหลัก
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <button
+                      onClick={() => setMobileTab('home')}
+                      className="p-1.5 bg-white rounded-xl border border-slate-200 text-slate-600"
+                    >
+                      <ArrowLeft className="w-4 h-4" />
+                    </button>
+                    <span className="text-xs font-bold text-slate-800 truncate max-w-[200px]">{activeAlbum.title}</span>
+                    <button
+                      onClick={() => {
+                        if (activeAlbum.shareUrl) {
+                          navigator.clipboard.writeText(activeAlbum.shareUrl);
+                          alert('คัดลอกลิงก์แชร์แล้ว');
+                        }
+                      }}
+                      className="p-1.5 bg-white rounded-xl border border-slate-200 text-blue-600"
+                    >
+                      <Share2 className="w-4 h-4" />
+                    </button>
                   </div>
-                ))}
-              </div>
+
+                  {/* Mini Hero Header */}
+                  <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 space-y-2">
+                    <span className="text-[10px] font-bold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200">
+                      {activeAlbum.category}
+                    </span>
+                    <h3 className="text-xs font-extrabold text-slate-900 leading-snug">
+                      {activeAlbum.title}
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      {activeAlbum.date} • {activeAlbum.photoCount} ภาพ • 4K RAW
+                    </p>
+                    <button
+                      onClick={() => alert(`กำลังดาวน์โหลดรูปภาพจาก Google Drive...`)}
+                      className="w-full py-2 bg-blue-600 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-2xs"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>ดาวน์โหลดรูปภาพ</span>
+                    </button>
+                  </div>
+
+                  {/* 2-Column Photo Grid (Image 22) */}
+                  {albumPhotos.length === 0 ? (
+                    <div className="p-8 text-center bg-white rounded-2xl border border-slate-200 text-xs text-slate-400">
+                      ยังไม่มีรูปภาพในอัลบั้มนี้
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2">
+                      {albumPhotos.map((p) => (
+                        <div
+                          key={p.id}
+                          onClick={() => onOpenPhotoLightbox(p)}
+                          className="group relative aspect-4/3 rounded-xl overflow-hidden bg-slate-100 border border-slate-200/80 cursor-pointer"
+                        >
+                          <img
+                            src={p.thumbnailUrl}
+                            alt=""
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
 

@@ -22,7 +22,6 @@ import {
 } from 'firebase/auth';
 import { db, auth, googleProvider, setCachedAccessToken, getCachedAccessToken, getValidAccessToken, isTokenExpired } from '../lib/firebase';
 import { Album, Photo, GmailUser, ShareLink, ActivityItem } from '../types';
-import { INITIAL_ALBUMS, INITIAL_PHOTOS } from '../data/mockData';
 import { getPhotoUrl, listFilesInAlbumFolder } from './googleDriveService';
 import { generatePinSalt, hashPin } from './pinSecurity';
 import { GooglePickerFile } from './googlePickerService';
@@ -60,42 +59,12 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 }
 
 /**
- * Seed initial albums and photos to Firestore if the collections are empty
+ * Seed initial albums and photos to Firestore: DISABLED for production
+ * Kept as a no-op to prevent re-seeding mock data
  */
 export async function seedInitialDataIfEmpty(): Promise<void> {
-  try {
-    const albumsSnap = await getDocs(collection(db, ALBUMS_COLLECTION));
-    if (albumsSnap.empty) {
-      console.log('Seeding initial albums into Firestore...');
-      for (const album of INITIAL_ALBUMS) {
-        await setDoc(doc(db, ALBUMS_COLLECTION, album.id), {
-          ...album,
-          driveFolderId: album.driveFolderId || `drive-folder-${album.id}`,
-          createdAt: new Date().toISOString()
-        });
-      }
-    }
-
-    const photosSnap = await getDocs(collection(db, PHOTOS_COLLECTION));
-    if (photosSnap.empty) {
-      console.log('Seeding initial photos into Firestore...');
-      for (const photo of INITIAL_PHOTOS) {
-        await setDoc(doc(db, PHOTOS_COLLECTION, photo.id), {
-          ...photo,
-          fileName: photo.filename,
-          mimeType: 'image/jpeg',
-          driveFileId: photo.driveFileId || `drive-${photo.id}`,
-          driveWebViewLink: photo.url,
-          uploadedBy: 'ครูกานดา (โสตทัศนศึกษา)',
-          sortOrder: 1,
-          isCover: photo.id === 'p-smt-01',
-          createdAt: new Date().toISOString()
-        });
-      }
-    }
-  } catch (error) {
-    console.warn('Error during Firestore initial check/seed:', error);
-  }
+  // Production Reset: Never seed mock or demo data into Firestore
+  return;
 }
 
 /**
@@ -109,8 +78,7 @@ export function subscribeAlbums(
     const albumsRef = collection(db, ALBUMS_COLLECTION);
     return onSnapshot(albumsRef, (snapshot) => {
       if (snapshot.empty) {
-        onUpdate(INITIAL_ALBUMS);
-        seedInitialDataIfEmpty();
+        onUpdate([]);
         return;
       }
       const loaded: Album[] = [];
@@ -127,7 +95,7 @@ export function subscribeAlbums(
     }, (err) => {
       console.warn('Firestore albums listener error:', err);
       if (onError) onError(err);
-      onUpdate(INITIAL_ALBUMS);
+      onUpdate([]);
     });
   } catch (err: any) {
     handleFirestoreError(err, OperationType.LIST, ALBUMS_COLLECTION);
@@ -146,7 +114,7 @@ export function subscribePhotos(
     const photosRef = collection(db, PHOTOS_COLLECTION);
     return onSnapshot(photosRef, (snapshot) => {
       if (snapshot.empty) {
-        onUpdate(INITIAL_PHOTOS);
+        onUpdate([]);
         return;
       }
       const loaded: Photo[] = [];
@@ -172,10 +140,46 @@ export function subscribePhotos(
     }, (err) => {
       console.warn('Firestore photos listener error:', err);
       if (onError) onError(err);
-      onUpdate(INITIAL_PHOTOS);
+      onUpdate([]);
     });
   } catch (err: any) {
     handleFirestoreError(err, OperationType.LIST, PHOTOS_COLLECTION);
+    return () => {};
+  }
+}
+
+/**
+ * Real-time listener for activity logs
+ */
+export function subscribeActivityLogs(
+  onUpdate: (logs: ActivityItem[]) => void,
+  onError?: (error: Error) => void
+): () => void {
+  try {
+    const logsRef = collection(db, ACTIVITY_LOGS_COLLECTION);
+    return onSnapshot(logsRef, (snapshot) => {
+      if (snapshot.empty) {
+        onUpdate([]);
+        return;
+      }
+      const loaded: ActivityItem[] = [];
+      snapshot.forEach((d) => {
+        const data = d.data() as ActivityItem;
+        loaded.push({
+          ...data,
+          id: d.id
+        });
+      });
+      // Sort newest first by timestamp or createdAt
+      loaded.sort((a, b) => (b.timestamp || (b as any).createdAt || '').localeCompare(a.timestamp || (a as any).createdAt || ''));
+      onUpdate(loaded);
+    }, (err) => {
+      console.warn('Firestore activityLogs listener error:', err);
+      if (onError) onError(err);
+      onUpdate([]);
+    });
+  } catch (err: any) {
+    handleFirestoreError(err, OperationType.LIST, ACTIVITY_LOGS_COLLECTION);
     return () => {};
   }
 }
