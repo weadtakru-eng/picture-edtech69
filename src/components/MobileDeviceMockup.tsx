@@ -52,7 +52,7 @@ export const MobileDeviceMockup: React.FC<MobileDeviceMockupProps> = ({
   const [activeAlbum, setActiveAlbum] = useState<Album | null>(currentAlbum);
 
   const totalPhotosCount = albums.reduce((acc, a) => acc + (a.photoCount || 0), 0);
-  const totalShareLinks = albums.filter(a => a.isShared && a.accessLevel !== 'disabled').length;
+  const totalShareLinks = albums.filter(a => (a.isPublished ?? a.isShared) && a.accessLevel !== 'disabled').length;
   const totalViews = albums.reduce((acc, a) => acc + (a.views || 0), 0);
 
   const albumPhotos = photos.filter(p => activeAlbum && p.albumId === activeAlbum.id);

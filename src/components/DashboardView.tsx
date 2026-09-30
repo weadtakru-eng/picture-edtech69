@@ -4,6 +4,7 @@ import {
   Image as ImageIcon, 
   Share2, 
   Eye, 
+  EyeOff,
   PlusCircle, 
   UploadCloud, 
   ArrowUpRight, 
@@ -50,10 +51,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>('ทั้งหมด');
   const [selectedYear, setSelectedYear] = useState<string>('2569');
+  const [selectedStatus, setSelectedStatus] = useState<'ทั้งหมด' | 'เผยแพร่' | 'ซ่อน'>('ทั้งหมด');
   const [selectedAccess, setSelectedAccess] = useState<string>('ทั้งหมด');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
   const categories = ['ทั้งหมด', 'ห้องเรียนพิเศษ', 'งานพิธีการ', 'กีฬา', 'กิจกรรมโรงเรียน', 'กิจกรรมนักเรียน'];
+
+  // Helper for published status with legacy fallback
+  const isAlbumPublished = (a: Album) => a.isPublished ?? a.isShared ?? false;
 
   // Real Statistics calculated from actual data (NO hardcoded demo numbers)
   const totalPhotosCount = useMemo(() => {
@@ -61,15 +66,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   }, [albums]);
 
   const activeShareLinks = useMemo(() => {
-    return albums.filter(a => a.isShared && a.accessLevel !== 'disabled');
+    return albums.filter(a => isAlbumPublished(a) && a.accessLevel !== 'disabled');
   }, [albums]);
 
   const totalShareLinksCount = activeShareLinks.length;
   const publicShareLinksCount = useMemo(() => {
-    return albums.filter(a => a.isShared && a.accessLevel === 'public').length;
+    return albums.filter(a => isAlbumPublished(a) && a.accessLevel === 'public').length;
   }, [albums]);
   const passwordShareLinksCount = useMemo(() => {
-    return albums.filter(a => a.isShared && a.accessLevel === 'password').length;
+    return albums.filter(a => isAlbumPublished(a) && a.accessLevel === 'password').length;
   }, [albums]);
 
   const totalViewsCount = useMemo(() => {
@@ -92,9 +97,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       }));
   }, [topLinks, activeShareLinks]);
 
-  // Filtered Albums
+  // Filtered Albums: Enforces isPublished for public and supports status filtering for admin
   const filteredAlbums = useMemo(() => {
     return albums.filter((album) => {
+      const isPub = album.isPublished ?? album.isShared ?? false;
+      // Section 10: If public visitor (not logged in), strictly see ONLY published albums
+      if (!currentUser && !isPub) {
+        return false;
+      }
+
       const matchSearch = searchQuery === '' || 
         album.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         album.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -102,13 +113,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       
       const matchCategory = selectedCategory === 'ทั้งหมด' || album.category === selectedCategory;
       const matchYear = selectedYear === 'ทั้งหมด' || album.academicYear === selectedYear;
+
+      // Section 11: Filter by published / hidden
+      const matchStatus = selectedStatus === 'ทั้งหมด' ||
+        (selectedStatus === 'เผยแพร่' && isPub) ||
+        (selectedStatus === 'ซ่อน' && !isPub);
+
       const matchAccess = selectedAccess === 'ทั้งหมด' || 
         (selectedAccess === 'สาธารณะ' && album.accessLevel === 'public') ||
         (selectedAccess === 'ส่วนตัว' && album.accessLevel === 'password');
 
-      return matchSearch && matchCategory && matchYear && matchAccess;
+      return matchSearch && matchCategory && matchYear && matchStatus && matchAccess;
     });
-  }, [albums, searchQuery, selectedCategory, selectedYear, selectedAccess]);
+  }, [albums, searchQuery, selectedCategory, selectedYear, selectedStatus, selectedAccess, currentUser]);
 
   const handleOpenAlbum = (album: Album) => {
     setSelectedAlbum(album);
@@ -307,6 +324,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </button>
                 </div>
 
+                {/* Status Selector (เผยแพร่ / ซ่อน) */}
+                {currentUser && (
+                  <select
+                    value={selectedStatus}
+                    onChange={(e) => setSelectedStatus(e.target.value as any)}
+                    className="text-xs font-medium bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="ทั้งหมด">สถานะ ทั้งหมด</option>
+                    <option value="เผยแพร่">เผยแพร่</option>
+                    <option value="ซ่อน">ซ่อน</option>
+                  </select>
+                )}
+
                 {/* Year Selector */}
                 <select
                   value={selectedYear}
@@ -379,23 +409,38 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         {album.category}
                       </span>
 
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold backdrop-blur-xs ${
-                        album.accessLevel === 'public'
-                          ? 'bg-emerald-500/90 text-white'
-                          : 'bg-amber-500/90 text-white'
-                      }`}>
-                        {album.accessLevel === 'public' ? (
-                          <>
-                            <Globe className="w-3 h-3" />
-                            <span>สาธารณะ</span>
-                          </>
+                      <div className="flex items-center gap-1.5">
+                        {/* Publish Status Badge (isPublished Source of Truth) */}
+                        {(album.isPublished ?? album.isShared) ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-600/90 text-white backdrop-blur-xs shadow-xs">
+                            <Eye className="w-3 h-3" />
+                            <span>เผยแพร่</span>
+                          </span>
                         ) : (
-                          <>
-                            <Lock className="w-3 h-3" />
-                            <span>รหัสผ่าน</span>
-                          </>
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-700/90 text-slate-200 backdrop-blur-xs shadow-xs">
+                            <EyeOff className="w-3 h-3" />
+                            <span>ซ่อน</span>
+                          </span>
                         )}
-                      </span>
+
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold backdrop-blur-xs ${
+                          album.accessLevel === 'public'
+                            ? 'bg-blue-600/90 text-white'
+                            : 'bg-amber-600/90 text-white'
+                        }`}>
+                          {album.accessLevel === 'public' ? (
+                            <>
+                              <Globe className="w-3 h-3" />
+                              <span>สาธารณะ</span>
+                            </>
+                          ) : (
+                            <>
+                              <Lock className="w-3 h-3" />
+                              <span>รหัสผ่าน</span>
+                            </>
+                          )}
+                        </span>
+                      </div>
                     </div>
 
                     {/* Bottom overlay in image */}
@@ -505,13 +550,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         {album.photoCount} รูป
                       </td>
                       <td className="py-3 px-3 hidden sm:table-cell">
-                        <span className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md ${
-                          album.accessLevel === 'public'
-                            ? 'bg-emerald-50 text-emerald-700'
-                            : 'bg-amber-50 text-amber-700'
-                        }`}>
-                          {album.accessLevel === 'public' ? 'สาธารณะ' : 'รหัสผ่าน'}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {(album.isPublished ?? album.isShared) ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              <Eye className="w-3 h-3" />
+                              <span>เผยแพร่</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
+                              <EyeOff className="w-3 h-3" />
+                              <span>ซ่อน</span>
+                            </span>
+                          )}
+                          <span className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md ${
+                            album.accessLevel === 'public'
+                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                              : 'bg-amber-50 text-amber-700 border border-amber-200'
+                          }`}>
+                            {album.accessLevel === 'public' ? 'สาธารณะ' : 'รหัสผ่าน'}
+                          </span>
+                        </div>
                       </td>
                       <td className="py-3 px-4 text-right">
                         <div className="inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>

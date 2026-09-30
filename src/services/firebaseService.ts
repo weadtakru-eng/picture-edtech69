@@ -191,7 +191,12 @@ export function subscribeActivityLogs(
 export async function saveAlbumToFirestore(album: Album): Promise<void> {
   try {
     const albumRef = doc(db, ALBUMS_COLLECTION, album.id);
-    const albumData: any = { ...album };
+    const isPub = album.isPublished === true;
+    const albumData: any = { 
+      ...album,
+      isPublished: isPub,
+      isShared: isPub // legacy compatibility mirror
+    };
 
     if (albumData.accessLevel === 'password' && !albumData.pinHash) {
       const salt = albumData.pinSalt || generatePinSalt();
@@ -652,10 +657,11 @@ export async function createShareLink(
 
     await setDoc(doc(db, SHARE_LINKS_COLLECTION, linkId), shareLink);
     
-    // Update album with shareUrl, isShared, and sync flags
+    // Update album with shareUrl, isPublished, and sync flags
     const albumRef = doc(db, ALBUMS_COLLECTION, albumId);
     await updateDoc(albumRef, {
-      isShared: true,
+      isPublished: true,
+      isShared: true, // legacy compatibility mirror
       shareRevoked: false,
       shareToken: shareToken,
       shareUrl: `${window.location.origin}/#public-album/${shareToken}`,
@@ -678,7 +684,8 @@ export async function revokeShareLink(albumId: string, shareToken?: string): Pro
   try {
     const albumRef = doc(db, ALBUMS_COLLECTION, albumId);
     await updateDoc(albumRef, {
-      isShared: false,
+      isPublished: false,
+      isShared: false, // legacy compatibility mirror
       shareRevoked: true,
       accessLevel: 'disabled',
       updatedAt: new Date().toISOString()
@@ -700,11 +707,29 @@ export async function revokeShareLink(albumId: string, shareToken?: string): Pro
 }
 
 /**
+ * Toggle album publish status directly in Firestore
+ */
+export async function toggleAlbumPublishStatus(albumId: string, isPublished: boolean): Promise<void> {
+  try {
+    const albumRef = doc(db, ALBUMS_COLLECTION, albumId);
+    await updateDoc(albumRef, {
+      isPublished,
+      isShared: isPublished, // legacy compatibility mirror
+      updatedAt: new Date().toISOString()
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `${ALBUMS_COLLECTION}/${albumId}`);
+    throw err;
+  }
+}
+
+/**
  * Update album share & security permissions in Firestore
  */
 export async function updateAlbumShareSettings(
   albumId: string,
   settings: {
+    isPublished?: boolean;
     accessLevel?: 'public' | 'password' | 'private' | 'disabled';
     pin?: string;
     allowDownload?: boolean;
@@ -716,6 +741,14 @@ export async function updateAlbumShareSettings(
     const updates: Record<string, any> = {
       updatedAt: new Date().toISOString()
     };
+
+    if (settings.isPublished !== undefined) {
+      updates.isPublished = settings.isPublished;
+      updates.isShared = settings.isPublished; // legacy mirror
+    } else if (settings.accessLevel === 'disabled') {
+      updates.isPublished = false;
+      updates.isShared = false;
+    }
 
     if (settings.accessLevel) {
       updates.accessLevel = settings.accessLevel;
@@ -742,6 +775,34 @@ export async function updateAlbumShareSettings(
   } catch (err) {
     handleFirestoreError(err, OperationType.UPDATE, `${ALBUMS_COLLECTION}/${albumId}`);
     throw err;
+  }
+}
+
+/**
+ * Query public published albums for public portal
+ */
+export async function getPublicPublishedAlbums(): Promise<Album[]> {
+  try {
+    const q = query(
+      collection(db, ALBUMS_COLLECTION),
+      where('isPublished', '==', true)
+    );
+    const snap = await getDocs(q);
+    const result: Album[] = [];
+    snap.forEach((d) => {
+      const alb = d.data() as Album;
+      if (alb.accessLevel !== 'disabled' && alb.accessLevel !== 'private' && !alb.shareRevoked) {
+        result.push({
+          ...alb,
+          id: d.id,
+          isPublished: true
+        });
+      }
+    });
+    return result;
+  } catch (err: any) {
+    handleFirestoreError(err, OperationType.LIST, ALBUMS_COLLECTION);
+    return [];
   }
 }
 
@@ -785,8 +846,8 @@ export async function getPublicAlbumByShareToken(shareToken: string): Promise<{ 
         // Non-blocking
       }
     } else {
-      // Check if any album has this shareToken directly
-      const qAlbum = query(collection(db, ALBUMS_COLLECTION), where('shareToken', '==', shareToken));
+      // Check if any album has this shareToken directly (only published albums)
+      const qAlbum = query(collection(db, ALBUMS_COLLECTION), where('shareToken', '==', shareToken), where('isPublished', '==', true));
       const snapAlbum = await getDocs(qAlbum);
       if (!snapAlbum.empty) {
         const alb = snapAlbum.docs[0].data() as Album;
@@ -809,7 +870,10 @@ export async function getPublicAlbumByShareToken(shareToken: string): Promise<{ 
     const rawAlbum = albumDoc.data() as Album;
 
     // Check if album itself is revoked, disabled, or private
-    if (rawAlbum.shareRevoked || !rawAlbum.isShared || rawAlbum.accessLevel === 'disabled') {
+    // Source of Truth: isPublished
+    // Legacy fallback: if isPublished is null/undefined, safely check isShared
+    const isPub = rawAlbum.isPublished ?? rawAlbum.isShared ?? false;
+    if (rawAlbum.shareRevoked || !isPub || rawAlbum.accessLevel === 'disabled' || rawAlbum.accessLevel === 'private') {
       return null;
     }
 
@@ -830,7 +894,8 @@ export async function getPublicAlbumByShareToken(shareToken: string): Promise<{ 
       pinSalt: rawAlbum.pinSalt,
       pinHash: rawAlbum.pinHash,
       allowDownload: rawAlbum.allowDownload !== undefined ? rawAlbum.allowDownload : allowedDownload,
-      isShared: true,
+      isPublished: true,
+      isShared: true, // legacy compatibility mirror
       shareUrl: rawAlbum.shareUrl || '',
       shareToken: rawAlbum.shareToken,
       description: rawAlbum.description || '',

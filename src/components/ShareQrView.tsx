@@ -41,6 +41,7 @@ export const ShareQrView: React.FC<ShareQrViewProps> = ({
   currentUser
 }) => {
   const [copied, setCopied] = useState(false);
+  const [isPublished, setIsPublished] = useState<boolean>(album.isPublished ?? album.isShared ?? false);
   const [accessLevel, setAccessLevel] = useState<'public' | 'password' | 'disabled'>(
     album.accessLevel === 'password' ? 'password' : (album.accessLevel === 'disabled' ? 'disabled' : 'public')
   );
@@ -54,18 +55,47 @@ export const ShareQrView: React.FC<ShareQrViewProps> = ({
   const activeToken = album.shareToken || 'share_' + album.id;
   const shareUrl = `${window.location.origin}/#public-album/${activeToken}`;
 
+  const handleTogglePublish = async (nextPublished: boolean) => {
+    setIsSavingSettings(true);
+    try {
+      const nextAccess = nextPublished ? (accessLevel === 'disabled' ? 'public' : accessLevel) : 'disabled';
+      await updateAlbumShareSettings(album.id, {
+        isPublished: nextPublished,
+        accessLevel: nextAccess
+      });
+      album.isPublished = nextPublished;
+      album.isShared = nextPublished;
+      album.accessLevel = nextAccess;
+      setIsPublished(nextPublished);
+      setAccessLevel(nextAccess);
+      setSelectedAlbum({ ...album, isPublished: nextPublished, accessLevel: nextAccess });
+      setToastMessage(nextPublished ? 'เผยแพร่อัลบั้มสู่สาธารณะเรียบร้อยแล้ว' : 'ซ่อนอัลบั้มจากสาธารณะเรียบร้อยแล้ว');
+      setTimeout(() => setToastMessage(null), 3000);
+    } catch (err: any) {
+      setToastMessage('เกิดข้อผิดพลาด: ' + err.message);
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+
   const handleSaveSecuritySettings = async () => {
     setIsSavingSettings(true);
     try {
       const expDays = expiration === '7' ? 7 : expiration === '30' ? 30 : 0;
+      const nextPublished = accessLevel !== 'disabled' && isPublished;
       await updateAlbumShareSettings(album.id, {
+        isPublished: nextPublished,
         accessLevel,
         pin: accessLevel === 'password' ? accessPassword : undefined,
         allowDownload,
         expirationDays: expDays
       });
+      album.isPublished = nextPublished;
+      album.isShared = nextPublished;
       album.accessLevel = accessLevel;
       album.allowDownload = allowDownload;
+      setIsPublished(nextPublished);
+      setSelectedAlbum({ ...album, isPublished: nextPublished, accessLevel, allowDownload });
       setToastMessage('บันทึกการตั้งค่าสิทธิ์และความปลอดภัย (Firestore) สำเร็จ!');
       setTimeout(() => setToastMessage(null), 3000);
     } catch (err: any) {
@@ -79,9 +109,12 @@ export const ShareQrView: React.FC<ShareQrViewProps> = ({
     if (window.confirm('คุณต้องการยกเลิกลิงก์เผยแพร่สาธารณะ (Revoke Link) ทันทีหรือไม่?')) {
       try {
         await revokeShareLink(album.id, album.shareToken);
+        album.isPublished = false;
         album.isShared = false;
         album.accessLevel = 'disabled';
+        setIsPublished(false);
         setAccessLevel('disabled');
+        setSelectedAlbum({ ...album, isPublished: false, accessLevel: 'disabled' });
         setToastMessage('ยกเลิกลิงก์เผยแพร่สาธารณะ (Revoked) เรียบร้อยแล้ว');
         setTimeout(() => setToastMessage(null), 3000);
       } catch (err: any) {
@@ -234,6 +267,49 @@ export const ShareQrView: React.FC<ShareQrViewProps> = ({
               <h3 className="font-bold text-slate-900 text-sm truncate">{album.title}</h3>
               <p className="text-xs text-slate-500 mt-0.5">{album.photoCount} รูปภาพ • {album.date} • {album.fileSizeTotal}</p>
             </div>
+          </div>
+
+          {/* Publication Status Card */}
+          <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
+            isPublished ? 'bg-emerald-50/70 border-emerald-200' : 'bg-slate-50 border-slate-200'
+          }`}>
+            <div className="flex items-center gap-3">
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                isPublished ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'
+              }`}>
+                {isPublished ? <Globe className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="text-xs font-bold text-slate-900">
+                    สถานะ: {isPublished ? 'เผยแพร่สู่สาธารณะ (Published)' : 'ซ่อนชั่วคราว (Draft / Hidden)'}
+                  </p>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                    isPublished ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'
+                  }`}>
+                    {isPublished ? 'ออนไลน์' : 'ซ่อน'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  {isPublished 
+                    ? 'บุคคลภายนอกสามารถเปิดดูและสแกน QR Code เข้าชมอัลบั้มได้' 
+                    : 'อัลบั้มนี้ถูกซ่อน ผู้เข้าชมภายนอกจะไม่สามารถเปิดดูภาพได้'}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => handleTogglePublish(!isPublished)}
+              disabled={isSavingSettings}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold shadow-xs transition-all active:scale-95 shrink-0 ${
+                isPublished 
+                  ? 'bg-white hover:bg-rose-50 text-rose-700 border border-rose-200' 
+                  : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+              }`}
+            >
+              {isPublished ? 'ซ่อนอัลบั้ม' : 'เผยแพร่ทันที'}
+            </button>
           </div>
 
           {/* Public Link Card */}
@@ -479,6 +555,13 @@ export const ShareQrView: React.FC<ShareQrViewProps> = ({
               <p className="text-[11px] text-slate-400">
                 เพื่อดูและดาวน์โหลดภาพกิจกรรมความละเอียดสูง 4K
               </p>
+
+              {!isPublished && (
+                <div className="mt-3.5 p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-[11px] flex items-center gap-2 text-left">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>อัลบั้มนี้กำลังถูกซ่อน (Draft / Hidden) บุคคลภายนอกจะไม่สามารถเปิดดูภาพได้จนกว่าจะกดเผยแพร่</span>
+                </div>
+              )}
             </div>
 
             {/* Resolution Selector */}

@@ -47,7 +47,7 @@ export const CreateAlbumModal: React.FC<CreateAlbumModalProps> = ({
   const [driveUrl, setDriveUrl] = useState('');
   const [description, setDescription] = useState('');
   const [coverUrl, setCoverUrl] = useState(DEFAULT_COVER_URL);
-  const [isPublished, setIsPublished] = useState(true);
+  const [isPublished, setIsPublished] = useState(false);
   const [category, setCategory] = useState<string>('กิจกรรมโรงเรียน');
   const [location, setLocation] = useState('หอประชุมใหญ่เฉลิมพระเกียรติฯ');
   const [organizer, setOrganizer] = useState('ฝ่ายโสตทัศนูปกรณ์และประชาสัมพันธ์');
@@ -67,7 +67,7 @@ export const CreateAlbumModal: React.FC<CreateAlbumModalProps> = ({
       setDriveUrl(albumToEdit.driveUrl || '');
       setDescription(albumToEdit.description || '');
       setCoverUrl(albumToEdit.coverUrl || DEFAULT_COVER_URL);
-      setIsPublished(albumToEdit.isPublished !== false);
+      setIsPublished(albumToEdit.isPublished ?? albumToEdit.isShared ?? false);
       setCategory(albumToEdit.category || 'กิจกรรมโรงเรียน');
       setLocation(albumToEdit.location || 'หอประชุมใหญ่เฉลิมพระเกียรติฯ');
       setOrganizer(albumToEdit.organizer || 'ฝ่ายโสตทัศนูปกรณ์และประชาสัมพันธ์');
@@ -80,7 +80,7 @@ export const CreateAlbumModal: React.FC<CreateAlbumModalProps> = ({
       setDriveUrl('');
       setDescription('');
       setCoverUrl(DEFAULT_COVER_URL);
-      setIsPublished(true);
+      setIsPublished(false);
       setCategory('กิจกรรมโรงเรียน');
       setLocation('หอประชุมใหญ่เฉลิมพระเกียรติฯ');
       setOrganizer('ฝ่ายโสตทัศนูปกรณ์และประชาสัมพันธ์');
@@ -146,7 +146,7 @@ export const CreateAlbumModal: React.FC<CreateAlbumModalProps> = ({
       downloads: albumToEdit?.downloads || 0,
       fileSizeTotal: albumToEdit?.fileSizeTotal || 'Google Drive',
       accessLevel: albumToEdit?.accessLevel || 'public',
-      isShared: true,
+      isShared: isPublished,
       shareUrl: `${window.location.origin}/#public-album/${shareToken}`,
       shareToken: shareToken,
       location: location,

@@ -196,9 +196,15 @@ export const AlbumDetailView: React.FC<AlbumDetailViewProps> = ({
             <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
               SMT & SLT 2569
             </span>
-            <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-              เผยแพร่สาธารณะ (Public Vault)
-            </span>
+            {(album.isPublished ?? album.isShared) ? (
+              <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                เผยแพร่สาธารณะ (Published)
+              </span>
+            ) : (
+              <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                ซ่อน / แบบร่าง (Draft / Hidden)
+              </span>
+            )}
             <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
               ความละเอียดสูง 4K RAW
             </span>

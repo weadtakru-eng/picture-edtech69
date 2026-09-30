@@ -57,7 +57,7 @@ export const PublicAlbumView: React.FC<PublicAlbumViewProps> = ({
       try {
         const result = await getPublicAlbumByShareToken(shareToken);
         if (!result) {
-          setError('ไม่พบอัลบั้มภาพ หรือลิงก์เผยแพร่อาจหมดอายุ/ถูกยกเลิกแล้ว');
+          setError('ไม่พบอัลบั้มภาพ หรืออัลบั้มยังไม่ได้รับการเผยแพร่สู่สาธารณะ');
         } else {
           setAlbum(result.album);
           setPhotos(result.photos);

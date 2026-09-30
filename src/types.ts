@@ -58,7 +58,7 @@ export interface Album {
   monthNumber?: number;
   eventDate?: string;
   driveUrl?: string;
-  isPublished?: boolean;
+  isPublished: boolean; // Source of Truth for publication to public
   category: 'กิจกรรมโรงเรียน' | 'กิจกรรมนักเรียน' | 'กีฬา' | 'งานพิธีการ' | 'ห้องเรียนพิเศษ' | string;
   date: string;
   photoCount: number;
@@ -72,7 +72,7 @@ export interface Album {
   pinSalt?: string;
   pinHash?: string;
   allowDownload?: boolean;
-  isShared: boolean;
+  isShared?: boolean; // Legacy fallback field
   shareUrl: string;
   shareToken?: string;
   shareRevoked?: boolean;
