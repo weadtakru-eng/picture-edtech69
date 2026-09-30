@@ -26,7 +26,6 @@ import { INITIAL_ALBUMS, INITIAL_PHOTOS } from '../data/mockData';
 import { getPhotoUrl, listFilesInAlbumFolder } from './googleDriveService';
 import { generatePinSalt, hashPin } from './pinSecurity';
 import { GooglePickerFile } from './googlePickerService';
-import { getMonthNumberFromName, getMonthNameFromNumber } from '../utils/academicYearUtils';
 
 const ALBUMS_COLLECTION = 'albums';
 const PHOTOS_COLLECTION = 'photos';
@@ -122,18 +121,8 @@ export function subscribeAlbums(
           id: d.id
         });
       });
-      // Sort Default: academicYear DESC, monthNumber DESC, eventDate DESC
-      loaded.sort((a, b) => {
-        const yearA = parseInt(a.academicYear || '0', 10);
-        const yearB = parseInt(b.academicYear || '0', 10);
-        if (yearB !== yearA) return yearB - yearA;
-
-        const monthA = a.monthNumber || getMonthNumberFromName(a.month || a.date);
-        const monthB = b.monthNumber || getMonthNumberFromName(b.month || b.date);
-        if (monthB !== monthA) return monthB - monthA;
-
-        return (b.eventDate || b.date || b.createdAt || '').localeCompare(a.eventDate || a.date || a.createdAt || '');
-      });
+      // Sort newest first
+      loaded.sort((a, b) => (b.createdAt || b.date || '').localeCompare(a.createdAt || a.date || ''));
       onUpdate(loaded);
     }, (err) => {
       console.warn('Firestore albums listener error:', err);
@@ -199,17 +188,6 @@ export async function saveAlbumToFirestore(album: Album): Promise<void> {
   try {
     const albumRef = doc(db, ALBUMS_COLLECTION, album.id);
     const albumData: any = { ...album };
-
-    // Calculate monthNumber and month
-    const monthNum = albumData.monthNumber || getMonthNumberFromName(albumData.month || albumData.date);
-    albumData.monthNumber = monthNum;
-    albumData.month = albumData.month || getMonthNameFromNumber(monthNum);
-    albumData.academicYear = (albumData.academicYear || '2569').trim();
-    albumData.eventDate = albumData.eventDate || albumData.date || '';
-    albumData.isPublished = albumData.isPublished !== false;
-    if (albumData.driveUrl) {
-      albumData.driveUrl = albumData.driveUrl.trim();
-    }
 
     if (albumData.accessLevel === 'password' && !albumData.pinHash) {
       const salt = albumData.pinSalt || generatePinSalt();
@@ -812,28 +790,10 @@ export async function getPublicAlbumByShareToken(shareToken: string): Promise<{ 
         if (alb.shareExpiresAt && new Date() > new Date(alb.shareExpiresAt)) return null;
         albumId = snapAlbum.docs[0].id;
         allowedDownload = alb.allowDownload !== false;
-      } else {
-        // Direct album ID check
-        const directDoc = await getDoc(doc(db, ALBUMS_COLLECTION, shareToken));
-        if (directDoc.exists()) {
-          const directData = directDoc.data() as Album;
-          if (directData.isPublished !== false && !directData.shareRevoked) {
-            albumId = directDoc.id;
-            allowedDownload = directData.allowDownload !== false;
-          }
-        }
       }
     }
 
     if (!albumId) {
-      // Fallback check against INITIAL_ALBUMS
-      const mockFound = INITIAL_ALBUMS.find(a => a.id === shareToken || a.shareToken === shareToken);
-      if (mockFound) {
-        return {
-          album: mockFound,
-          photos: INITIAL_PHOTOS.filter(p => p.albumId === mockFound.id)
-        };
-      }
       return null;
     }
 
@@ -844,8 +804,8 @@ export async function getPublicAlbumByShareToken(shareToken: string): Promise<{ 
     }
     const rawAlbum = albumDoc.data() as Album;
 
-    // Check if album itself is revoked, disabled, or unpublished
-    if (rawAlbum.shareRevoked || rawAlbum.isPublished === false || rawAlbum.accessLevel === 'disabled') {
+    // Check if album itself is revoked, disabled, or private
+    if (rawAlbum.shareRevoked || !rawAlbum.isShared || rawAlbum.accessLevel === 'disabled') {
       return null;
     }
 
@@ -854,11 +814,6 @@ export async function getPublicAlbumByShareToken(shareToken: string): Promise<{ 
       id: albumDoc.id,
       title: rawAlbum.title || 'อัลบั้มภาพกิจกรรม',
       academicYear: rawAlbum.academicYear || '',
-      month: rawAlbum.month || '',
-      monthNumber: rawAlbum.monthNumber || getMonthNumberFromName(rawAlbum.month || rawAlbum.date),
-      eventDate: rawAlbum.eventDate || rawAlbum.date || '',
-      driveUrl: rawAlbum.driveUrl || '',
-      isPublished: true,
       category: rawAlbum.category || 'กิจกรรมทั่วไป',
       date: rawAlbum.date || '',
       photoCount: rawAlbum.photoCount || 0,

@@ -54,11 +54,6 @@ export interface Album {
   id: string;
   title: string;
   academicYear: string;
-  month?: string;
-  monthNumber?: number;
-  eventDate?: string;
-  driveUrl?: string;
-  isPublished?: boolean;
   category: 'กิจกรรมโรงเรียน' | 'กิจกรรมนักเรียน' | 'กีฬา' | 'งานพิธีการ' | 'ห้องเรียนพิเศษ' | string;
   date: string;
   photoCount: number;
@@ -84,7 +79,6 @@ export interface Album {
   tags: string[];
   driveFolderId?: string;
   createdBy?: string;
-  createdByName?: string;
   createdAt?: string;
   updatedAt?: string;
 }

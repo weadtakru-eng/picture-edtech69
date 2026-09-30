@@ -17,15 +17,13 @@ service cloud.firestore {
       allow write: if isSignedIn() && request.auth.uid == userId;
     }
 
-    // Albums collection: Public visitor can read ONLY published or shared active albums.
-    // Public CANNOT write albums. Staff/Admin can create, update, delete.
+    // Albums collection: Public visitor can read ONLY shared & active albums.
+    // Public CANNOT write albums.
     match /albums/{albumId} {
       allow read: if isSignedIn() || (
-        resource.data.isPublished == true || (
-          resource.data.isShared == true && 
-          resource.data.accessLevel != 'disabled' &&
-          resource.data.accessLevel != 'private'
-        )
+        resource.data.isShared == true && 
+        resource.data.accessLevel != 'disabled' &&
+        resource.data.accessLevel != 'private'
       );
       allow create, update, delete: if isSignedIn();
     }

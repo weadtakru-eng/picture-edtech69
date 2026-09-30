@@ -16,14 +16,12 @@ import {
   AlertCircle,
   HardDrive,
   Database,
-  ExternalLink,
-  FolderOpen
+  ExternalLink
 } from 'lucide-react';
 import { Album, Photo } from '../types';
 import { getPublicAlbumByShareToken } from '../services/firebaseService';
 import { getPhotoUrl, getDownloadUrl, getFallbackPhotoUrl } from '../services/googleDriveService';
 import { verifyPin } from '../services/pinSecurity';
-import { openGoogleDrive } from '../utils/academicYearUtils';
 
 interface PublicAlbumViewProps {
   shareToken: string;
@@ -311,21 +309,12 @@ export const PublicAlbumView: React.FC<PublicAlbumViewProps> = ({
             </div>
           </div>
 
-          <div className="pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-4">
-            <div className="text-xs text-slate-500">
-              {photos.length > 0 && (
-                <span>แสดง <strong>{Math.min(visibleCount, photos.length)}</strong> จากทั้งหมด <strong>{photos.length}</strong> รูปภาพ</span>
-              )}
-            </div>
-
-            <button
-              onClick={() => openGoogleDrive(album.driveUrl, album.driveFolderId)}
-              className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-semibold rounded-xl shadow-md shadow-blue-500/20 active:scale-98 transition-all"
-            >
-              <FolderOpen className="w-4 h-4" />
-              <span>เปิด Google Drive (ดูรูปทั้งหมด)</span>
-              <ExternalLink className="w-3.5 h-3.5 ml-0.5" />
-            </button>
+          <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+            <span>แสดง <strong>{Math.min(visibleCount, photos.length)}</strong> จากทั้งหมด <strong>{photos.length}</strong> รูปภาพ</span>
+            <span className="flex items-center gap-1.5 text-blue-600">
+              <HardDrive className="w-3.5 h-3.5" />
+              <span>ภาพต้นฉบับจัดเก็บใน Google Drive</span>
+            </span>
           </div>
         </div>
 
